@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct StatusView: View {
+    @EnvironmentObject private var manager: ConnectionManager
+
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
@@ -16,15 +18,15 @@ struct StatusView: View {
 
     private var statusCard: some View {
         VStack(spacing: 0) {
-            row("通道类型", value: "TLS", badge: true)
-            row("TLS 加密套件", value: "ECDHE-RSA-AES256-GCM-SHA384")
-            row("DTLS 加密套件", value: "—")
-            row("DTLS 端口", value: "—")
-            row("服务器地址", value: "ppp111p.72kg.top")
-            row("本地地址", value: "192.168.1.100")
-            row("VPN 地址", value: "—")
-            row("MTU", value: "1399")
-            row("DNS", value: "—")
+            row("通道类型", value: manager.status.channelType, badge: true)
+            row("TLS 加密套件", value: manager.status.tlsCipherSuite)
+            row("DTLS 加密套件", value: manager.status.dtlsCipherSuite)
+            row("DTLS 端口", value: manager.status.dtlsPort)
+            row("服务器地址", value: manager.status.serverAddress)
+            row("本地地址", value: manager.status.localAddress)
+            row("VPN 地址", value: manager.status.vpnAddress)
+            row("MTU", value: manager.status.mtu > 0 ? String(manager.status.mtu) : "—")
+            row("DNS", value: manager.status.dns.isEmpty ? "—" : manager.status.dns.joined(separator: ","))
         }
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.cornerRadiusCard))
     }

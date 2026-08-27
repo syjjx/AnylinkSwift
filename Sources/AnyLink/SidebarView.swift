@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @Binding var selection: SidebarItem?
+    @EnvironmentObject private var manager: ConnectionManager
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +42,9 @@ struct SidebarView: View {
     private var statusPill: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(AppTheme.success)
+                .fill(pillColor)
                 .frame(width: 8, height: 8)
-            Text("未连接")
+            Text(pillText)
                 .font(.caption)
                 .foregroundStyle(AppTheme.secondaryText)
             Spacer(minLength: 0)
@@ -51,5 +52,24 @@ struct SidebarView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(AppTheme.border.opacity(0.6), in: Capsule())
+    }
+
+    private var pillColor: Color {
+        switch manager.state {
+        case .connected: AppTheme.success
+        case .connecting, .reconnecting: AppTheme.warning
+        case .failed: .red
+        case .idle: AppTheme.secondaryText
+        }
+    }
+
+    private var pillText: String {
+        switch manager.state {
+        case .connected: "已连接"
+        case .connecting: "连接中"
+        case .reconnecting: "重连中"
+        case .failed: "连接失败"
+        case .idle: "未连接"
+        }
     }
 }

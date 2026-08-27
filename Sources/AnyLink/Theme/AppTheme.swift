@@ -4,9 +4,16 @@ enum AppTheme {
     static let accent = Color(hex: 0x0a84ff)
     static let accentEnd = Color(hex: 0x0060df)
     static let success = Color(hex: 0x34c759)
+    static let warning = Color(hex: 0xff9f0a)
 
     static let accentGradient = LinearGradient(
         colors: [accent, accentEnd],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    static let successGradient = LinearGradient(
+        colors: [success, Color(hex: 0x248a3d)],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
