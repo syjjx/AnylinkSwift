@@ -6,6 +6,40 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("VPN 服务组件")
+                        .font(.callout.weight(.semibold))
+
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 8, height: 8)
+                        Text(statusText)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            Task { await connectionManager.installAgent() }
+                        } label: {
+                            Text(connectionManager.isAgentBusy ? "处理中…" : "更新服务组件")
+                        }
+                        .disabled(connectionManager.isAgentBusy)
+
+                        Button(role: .destructive) {
+                            Task { await connectionManager.uninstallAgent() }
+                        } label: {
+                            Text("卸载服务组件")
+                        }
+                        .disabled(connectionManager.isAgentBusy)
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 21)
+                .padding(.vertical, 14)
+                .tunnelCard()
+
                 VStack(alignment: .leading, spacing: 0) {
                     SettingRow(
                         title: "启动时自动连接",
@@ -54,10 +88,25 @@ struct SettingsView: View {
         }
     }
 
+    private var statusText: String {
+        switch connectionManager.agentState {
+        case .installed: return "已安装，服务正常"
+        case .outdated: return "服务指向旧版本应用，请点击更新"
+        case .missing: return "未安装，请点击更新安装"
+        }
+    }
+
+    private var statusColor: Color {
+        switch connectionManager.agentState {
+        case .installed: return AppTheme.success
+        case .outdated, .missing: return AppTheme.warning
+        }
+    }
+
     private func binding(for keyPath: WritableKeyPath<AppSettings, Bool>) -> Binding<Bool> {
         Binding(
             get: { connectionManager.settings[keyPath: keyPath] },
-            set: { connectionManager.settings[keyPath: keyPath] = $0 }
+            set: { connectionManager.setSetting(keyPath, to: $0) }
         )
     }
 }

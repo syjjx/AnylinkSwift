@@ -56,9 +56,9 @@ enum ConnectionState: Equatable {
     var detail: String {
         switch self {
         case .disconnected: return "选择网关开始连接"
-        case .connecting: return "正在准备模拟隧道"
-        case .connected: return "模拟隧道已建立"
-        case .disconnecting: return "正在关闭模拟隧道"
+        case .connecting: return "正在连接 VPN 服务器"
+        case .connected: return "隧道已建立"
+        case .disconnecting: return "正在关闭隧道"
         case .failed: return "请重新尝试连接"
         }
     }
@@ -225,7 +225,7 @@ struct TunnelSnapshot: Sendable {
 struct AppSettings: Sendable {
     var autoConnect = false
     var minimizeOnConnect = true
-    var blockUntrustedServers = false
+    var blockUntrustedServers = true
     var debugLogging = false
     var ciscoCompatibility = false
     var disableDTLS = false

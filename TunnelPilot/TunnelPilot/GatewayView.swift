@@ -1,14 +1,15 @@
 import SwiftUI
 
 struct GatewayView: View {
-    @EnvironmentObject private var connectionManager: ConnectionManager
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 GatewayHeroCard()
-                GatewayFormCard(openProfileManager: { openWindow(id: "profile-manager") })
+                GatewayFormCard {
+                    openWindow(id: "profile-manager")
+                }
             }
             .padding(.horizontal, 30)
             .padding(.bottom, 30)
@@ -108,7 +109,7 @@ private struct GatewayHeroCard: View {
             )
         case .disconnected:
             return LinearGradient(
-                colors: [Color(hex: 0x168EFF), Color(hex: 0x1265D5)],
+                colors: [Color(hex: 0x1495FF), Color(hex: 0x0566E6)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -121,44 +122,42 @@ private struct GatewayFormCard: View {
     let openProfileManager: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("主机")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
-                    Picker("网关", selection: $connectionManager.selectedGatewayID) {
-                        ForEach(connectionManager.gateways) { gateway in
-                            Text(gateway.displayName)
-                                .tag(gateway.id)
-                        }
-                }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .background(AppTheme.controlBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+                    NativePopupButton(
+                        titles: connectionManager.gateways.map(\.displayName),
+                        selection: selectedGatewayIndex
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+                    .background(
+                        AppTheme.controlBackground,
+                        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    )
                     .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(AppTheme.border, lineWidth: 1)
                     }
 
-                    Button {
-                        openProfileManager()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 36, height: 36)
+                    Button(action: openProfileManager) {
+                        ZStack {
+                            Color.clear
+
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(AppTheme.accent)
+                        }
+                        .frame(width: 36, height: 36)
+                        .contentShape(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        )
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(AppTheme.accent)
-                    .background(AppTheme.cardBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                            .stroke(AppTheme.border, lineWidth: 1)
-                    }
+                    .buttonStyle(IconSquareButtonStyle())
                     .help("管理配置")
                 }
             }
@@ -171,10 +170,11 @@ private struct GatewayFormCard: View {
                 SecureField("请输入临时密码", text: $connectionManager.otp)
                     .textFieldStyle(.plain)
                     .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
                     .frame(height: 36)
-                    .background(AppTheme.controlBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
+                    .background(AppTheme.controlBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(AppTheme.border, lineWidth: 1)
                     }
             }
@@ -183,38 +183,53 @@ private struct GatewayFormCard: View {
         .padding(.vertical, 18)
         .tunnelCard()
     }
+
+    private var selectedGatewayIndex: Binding<Int> {
+        Binding(
+            get: {
+                connectionManager.gateways.firstIndex {
+                    $0.id == connectionManager.selectedGatewayID
+                } ?? 0
+            },
+            set: { index in
+                guard connectionManager.gateways.indices.contains(index) else { return }
+                connectionManager.selectedGatewayID = connectionManager.gateways[index].id
+            }
+        )
+    }
 }
 
-private struct AddGatewaySheet: View {
-    @Binding var address: String
-    let add: () -> Void
-    let cancel: () -> Void
+// MARK: - 方形图标按钮样式（含 hover / 按下反馈）
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("添加网关")
-                .font(.title3.weight(.semibold))
+private struct IconSquareButtonStyle: ButtonStyle {
+    @State private var isHovering = false
 
-            Text("输入服务器地址和可选端口，以保存一个网关配置。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            TextField("服务器地址:443", text: $address)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(add)
-
-            HStack {
-                Spacer()
-
-                Button("取消", action: cancel)
-                    .keyboardShortcut(.cancelAction)
-
-                Button("添加", action: add)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                backgroundColor(isPressed: configuration.isPressed),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(
+                        isHovering ? AppTheme.accent.opacity(0.6) : AppTheme.border,
+                        lineWidth: 1
+                    )
             }
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.easeInOut(duration: 0.15), value: isHovering)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+            .onHover { isHovering = $0 }
+    }
+
+    private func backgroundColor(isPressed: Bool) -> Color {
+        if isPressed {
+            return AppTheme.accent.opacity(0.18)
+        } else if isHovering {
+            return AppTheme.accent.opacity(0.10)
+        } else {
+            return AppTheme.cardBackground
         }
-        .padding(24)
-        .frame(width: 410)
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct HelpView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var activeSheet: HelpSheet?
 
     var body: some View {
@@ -22,7 +23,7 @@ struct HelpView: View {
 
             HStack(spacing: 12) {
                 HelpActionButton(title: "连接日志", systemImage: "doc.text") {
-                    activeSheet = .logs
+                    openWindow(id: "connection-logs")
                 }
 
                 HelpActionButton(title: "安全提示", systemImage: "shield") {
@@ -69,7 +70,6 @@ private struct HelpActionButton: View {
 }
 
 private enum HelpSheet: String, Identifiable {
-    case logs
     case security
 
     var id: String { rawValue }
@@ -82,7 +82,7 @@ private struct HelpSheetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(sheet == .logs ? "连接日志" : "安全提示")
+                Text("安全提示")
                     .font(.title3.weight(.semibold))
 
                 Spacer()
@@ -91,13 +91,8 @@ private struct HelpSheetView: View {
                     .keyboardShortcut(.cancelAction)
             }
 
-            if sheet == .logs {
-                Text("暂时没有连接日志。真实通信服务尚未在此界面预览中启用。")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("请只连接到信任的网关。证书验证和虚拟专用网络权限将在接入真实通信服务时加入。")
-                    .foregroundStyle(.secondary)
-            }
+            Text("请只连接到信任的网关。证书验证和虚拟专用网络权限将在接入真实通信服务时加入。")
+                .foregroundStyle(.secondary)
         }
         .padding(24)
         .frame(width: 460)

@@ -33,6 +33,12 @@ struct TunnelPilotApp: App {
         .defaultSize(width: 720, height: 520)
         .windowResizability(.contentSize)
 
+        Window("连接日志", id: "connection-logs") {
+            ConnectionLogsView()
+                .environmentObject(connectionManager)
+        }
+        .defaultSize(width: 692, height: 405)
+
         MenuBarExtra {
             MenuBarContent(appDelegate: appDelegate)
                 .environmentObject(connectionManager)
