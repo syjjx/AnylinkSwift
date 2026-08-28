@@ -55,6 +55,7 @@
 				F604BE20303FF12A00146130 /* Sources */,
 				F604BE21303FF12A00146130 /* Frameworks */,
 				F604BE22303FF12A00146130 /* Resources */,
+				F604BE33303FF12B00146130 /* Embed VPN Agent Binaries */,
 			);
 			buildRules = (
 			);
@@ -123,6 +124,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F604BE33303FF12B00146130 /* Embed VPN Agent Binaries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed VPN Agent Binaries";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/bash\nset -euo pipefail\nSSLCON_REPO=\"${SSLCON_REPO:-/Volumes/MobileDisk/DEV/GO/sslcon}\"\nGO_BIN=\"${GO_BIN:-/usr/local/go/bin/go}\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nif [ ! -d \"$SSLCON_REPO\" ]; then\n  echo \"warning: sslcon 仓库不存在: $SSLCON_REPO\"\n  exit 0\nfi\nmkdir -p \"$DEST\"\n(cd \"$SSLCON_REPO\" && \"$GO_BIN\" build -trimpath -ldflags \"-s -w\" -o \"$DEST/vpnagent\" vpnagent.go)\n(cd \"$SSLCON_REPO\" && \"$GO_BIN\" build -trimpath -ldflags \"-s -w\" -o \"$DEST/sslcon\" sslcon.go)\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		F604BE2D303FF12B00146130 /* Debug */ = {
@@ -257,6 +280,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "隧道助手 安全客户端";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -289,6 +313,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "隧道助手 安全客户端";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -6,40 +6,6 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("VPN 服务组件")
-                        .font(.callout.weight(.semibold))
-
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(statusColor)
-                            .frame(width: 8, height: 8)
-                        Text(statusText)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    HStack(spacing: 10) {
-                        Button {
-                            Task { await connectionManager.installAgent() }
-                        } label: {
-                            Text(connectionManager.isAgentBusy ? "处理中…" : "更新服务组件")
-                        }
-                        .disabled(connectionManager.isAgentBusy)
-
-                        Button(role: .destructive) {
-                            Task { await connectionManager.uninstallAgent() }
-                        } label: {
-                            Text("卸载服务组件")
-                        }
-                        .disabled(connectionManager.isAgentBusy)
-                    }
-                    .controlSize(.small)
-                }
-                .padding(.horizontal, 21)
-                .padding(.vertical, 14)
-                .tunnelCard()
-
                 VStack(alignment: .leading, spacing: 0) {
                     SettingRow(
                         title: "启动时自动连接",
@@ -80,6 +46,42 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 21)
                 .padding(.vertical, 8)
+                .tunnelCard()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("VPN 服务组件")
+                        .font(.callout.weight(.semibold))
+
+                    HStack(spacing: 10) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(statusColor)
+                                .frame(width: 7, height: 7)
+                            Text(statusText)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Button {
+                            Task { await connectionManager.installAgent() }
+                        } label: {
+                            Text(connectionManager.isAgentBusy ? "处理中…" : "更新服务组件")
+                        }
+                        .disabled(connectionManager.isAgentBusy)
+
+                        Button(role: .destructive) {
+                            Task { await connectionManager.uninstallAgent() }
+                        } label: {
+                            Text("卸载服务组件")
+                        }
+                        .disabled(connectionManager.isAgentBusy)
+                    }
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 21)
+                .padding(.vertical, 10)
                 .tunnelCard()
             }
             .padding(.horizontal, 30)
@@ -142,6 +144,6 @@ private struct SettingRow: View {
                 Divider()
             }
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 9)
     }
 }

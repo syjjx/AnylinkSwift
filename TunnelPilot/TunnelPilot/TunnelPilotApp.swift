@@ -43,7 +43,10 @@ struct TunnelPilotApp: App {
             MenuBarContent(appDelegate: appDelegate)
                 .environmentObject(connectionManager)
         } label: {
-            MenuBarStatusIcon(state: connectionManager.connectionState)
+            MenuBarStatusIcon(
+                state: connectionManager.connectionState,
+                rates: connectionManager.trafficRates
+            )
         }
         .menuBarExtraStyle(.menu)
     }

@@ -256,31 +256,70 @@ private struct ProfileSecureField: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 62, alignment: .trailing)
 
-            ZStack(alignment: .leading) {
-                TextField("", text: $text)
-                    .textFieldStyle(.plain)
-                    .foregroundStyle(.clear)
-                    .tint(AppTheme.accent)
-                    .textContentType(nil)
-                    .autocorrectionDisabled()
-
-                if text.isEmpty {
-                    Text(placeholder)
-                        .foregroundStyle(.secondary)
-                        .allowsHitTesting(false)
-                } else {
-                    Text(String(repeating: "*", count: text.count))
-                        .foregroundStyle(.primary)
-                        .allowsHitTesting(false)
+            NoAutofillSecureField(placeholder: placeholder, text: $text)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .frame(height: 36)
+                .background(AppTheme.controlBackground, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(AppTheme.border, lineWidth: 1)
                 }
+        }
+    }
+}
+/// 用公开 API 抑制 Passwords 自动填充建议的安全输入框
+private struct NoAutofillSecureField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    func makeNSView(context: Context) -> NSSecureTextField {
+        let field = NSSecureTextField()
+        field.placeholderString = placeholder
+        field.delegate = context.coordinator
+
+        // 关键：用一次性验证码类型，避开“密码建议”启发式（公开 API）
+        field.contentType = .oneTimeCode
+
+        // 透明无边框，交给 SwiftUI 画背景/描边
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13)
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+
+        return field
+    }
+
+    func updateNSView(_ nsView: NSSecureTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        private let text: Binding<String>
+        init(text: Binding<String>) { self.text = text }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            text.wrappedValue = field.stringValue
+        }
+
+        // 关键：让回车事件继续冒泡，交给 SwiftUI 的 .keyboardShortcut(.defaultAction) 处理
+        func control(_ control: NSControl,
+                     textView: NSTextView,
+                     doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                // 不在这里“吞掉”回车，返回 false 让默认按钮触发保存
+                return false
             }
-            .padding(.horizontal, 10)
-            .frame(height: 34)
-            .background(AppTheme.controlBackground, in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous)
-                    .stroke(AppTheme.border, lineWidth: 1)
-            }
+            return false
         }
     }
 }

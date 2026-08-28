@@ -3,20 +3,43 @@ import SwiftUI
 
 struct MenuBarStatusIcon: View {
     let state: ConnectionState
+    var rates: TrafficRates = .inactive
 
     var body: some View {
-        Image(systemName: state.menuBarSymbol)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(stateColor)
+        if state == .connected {
+            Image(nsImage: rates.menuBarImage(
+                symbolName: state.menuBarSymbol,
+                iconColor: stateNSColor
+            ))
+            .fixedSize()
             .accessibilityLabel("连接状态：\(state.statusBarText)")
+        } else {
+            Image(systemName: state.menuBarSymbol)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(stateColor)
+                .accessibilityLabel("连接状态：\(state.statusBarText)")
+        }
     }
 
     private var stateColor: Color {
         switch state {
-        case .connected: return AppTheme.success
+        case .connected: return .secondary
         case .connecting, .disconnecting: return AppTheme.warning
         case .failed: return AppTheme.danger
         case .disconnected: return .secondary
+        }
+    }
+
+    private var stateNSColor: NSColor {
+        switch state {
+        case .connected:
+            return .white
+        case .disconnected:
+            return .secondaryLabelColor
+        case .connecting, .disconnecting:
+            return NSColor(calibratedRed: 0xFF / 255.0, green: 0x9F / 255.0, blue: 0x0A / 255.0, alpha: 1)
+        case .failed:
+            return NSColor(calibratedRed: 0xFF / 255.0, green: 0x45 / 255.0, blue: 0x3A / 255.0, alpha: 1)
         }
     }
 }

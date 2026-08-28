@@ -12,9 +12,12 @@ enum AgentInstallState: Equatable, Sendable {
 
 enum AgentInstallerError: Error, LocalizedError {
     case executionFailed(Int32, String)
+    case binaryMissing
 
     var errorDescription: String? {
         switch self {
+        case .binaryMissing:
+            return "应用包内缺少 vpnagent 组件，请使用打包版本"
         case .executionFailed(let status, let message):
             if message.isEmpty {
                 return "提权执行失败（退出码 \(status)）"
@@ -71,6 +74,11 @@ struct AgentInstaller: Sendable {
     }
 
     // MARK: - 私有
+
+    /// bundle 内是否存在 vpnagent 可执行文件。
+    func hasBundledAgent() -> Bool {
+        FileManager.default.isExecutableFile(atPath: vpnAgentPath)
+    }
 
     /// shell 单引号转义。
     private func shellQuote(_ path: String) -> String {

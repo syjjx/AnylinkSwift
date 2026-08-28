@@ -324,7 +324,7 @@ actor AgentConnectionService: ConnectionService {
         await refreshStatus()
         while !Task.isCancelled {
             do {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
+                try await Task.sleep(nanoseconds: 1_000_000_000)
             } catch {
                 return
             }
@@ -333,7 +333,7 @@ actor AgentConnectionService: ConnectionService {
             }
             statCount += 1
             await refreshTraffic()
-            if statCount % 30 == 0 {
+            if statCount % 60 == 0 {
                 await refreshStatus()
             }
         }

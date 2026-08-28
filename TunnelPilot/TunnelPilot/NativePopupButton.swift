@@ -187,6 +187,8 @@ struct NativePopupButton: NSViewRepresentable {
 
     let titles: [String]
 
+    var isEnabled = true
+
     @Binding var selection: Int
 
     func makeCoordinator() -> Coordinator {
@@ -285,7 +287,7 @@ struct NativePopupButton: NSViewRepresentable {
             return
         }
 
-        button.isEnabled = true
+        button.isEnabled = isEnabled
         button.addItems(withTitles: titles)
 
         let index = min(

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum AppSection: String, CaseIterable, Identifiable {
@@ -77,7 +78,7 @@ enum ConnectionState: Equatable {
         switch self {
         case .disconnected: return "lock.open"
         case .connecting, .disconnecting: return "arrow.triangle.2.circlepath"
-        case .connected: return "lock.shield.fill"
+        case .connected: return "lock"
         case .failed: return "exclamationmark.shield.fill"
         }
     }
@@ -162,6 +163,71 @@ struct TrafficSnapshot: Sendable {
         sentBytes: 2_260_000,
         receivedBytes: 7_370_000
     )
+}
+
+/// 隧道实时速率（字节/秒），由流量统计差分得出。
+struct TrafficRates: Sendable {
+    var sentPerSecond: Double = 0
+    var receivedPerSecond: Double = 0
+
+    static let inactive = TrafficRates()
+
+    /// 菜单栏显示文本（两行：上行上传、下行下载），如 "↑12.3KB/s\n↓4.5MB/s"。
+    var menuBarText: String {
+        "↑\(Self.format(sentPerSecond))\n↓\(Self.format(receivedPerSecond))"
+    }
+
+    /// 渲染为菜单栏图片：左侧状态图标 + 右侧两行速度文本（上行上传、下行下载）。
+    /// MenuBarExtra 的状态栏 label 会强制固定字体并可能丢弃部分子视图，
+    /// 因此图标与文字绘制成一张图。
+    func menuBarImage(symbolName: String, iconColor: NSColor, fontSize: CGFloat = 8) -> NSImage {
+        let iconSize: CGFloat = 18
+        let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: iconSize, weight: .regular))?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [iconColor]))
+
+        let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .medium)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.white,
+        ]
+        let up = NSAttributedString(string: "↑\(Self.format(sentPerSecond))", attributes: attributes)
+        let down = NSAttributedString(string: "↓\(Self.format(receivedPerSecond))", attributes: attributes)
+        let lineHeight = up.size().height
+        let textWidth = max(up.size().width, down.size().width)
+        let gap: CGFloat = 4
+        let width = iconSize + gap + textWidth
+        let height = max(lineHeight * 2, iconSize)
+
+        let image = NSImage(size: NSSize(width: ceil(width), height: ceil(height)))
+        image.lockFocus()
+        icon?.draw(in: NSRect(
+            x: 0,
+            y: (height - iconSize) / 2,
+            width: iconSize,
+            height: iconSize
+        ))
+        let textX = iconSize + gap
+        up.draw(at: NSPoint(x: textX, y: height - lineHeight))
+        down.draw(at: NSPoint(x: textX, y: 0))
+        image.unlockFocus()
+        return image
+    }
+
+    /// 与 Qt 原版一致，按 1000 进制格式化。
+    private static func format(_ bytesPerSecond: Double) -> String {
+        let value = max(0, bytesPerSecond)
+        switch value {
+        case ..<1000:
+            return String(format: "%.0fB/s", value)
+        case ..<1_000_000:
+            return String(format: "%.1fKB/s", value / 1000)
+        case ..<1_000_000_000:
+            return String(format: "%.1fMB/s", value / 1_000_000)
+        default:
+            return String(format: "%.2fGB/s", value / 1_000_000_000)
+        }
+    }
 }
 
 struct RouteSnapshot: Sendable {

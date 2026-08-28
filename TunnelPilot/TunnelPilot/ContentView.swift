@@ -18,6 +18,10 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if connectionManager.agentState != .installed {
+                AgentInstallBanner()
+            }
+
             HStack(spacing: 0) {
                 SidebarView(selection: $selection)
                     .frame(width: 172)
@@ -39,11 +43,6 @@ struct ContentView: View {
         }
         .background(AppTheme.pageBackground)
         .frame(width: 820, height: 600)
-        .overlay(alignment: .top) {
-            if connectionManager.agentState != .installed {
-                AgentInstallBanner()
-            }
-        }
         .overlay {
             WindowAccessor(appDelegate: appDelegate)
                 .frame(width: 0, height: 0)
@@ -102,7 +101,9 @@ private struct AgentInstallBanner: View {
                 .stroke(AppTheme.warning.opacity(0.5), lineWidth: 1)
         }
         .padding(.horizontal, 14)
-        .padding(.top, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.pageBackground)
     }
 
     private var bannerText: String {

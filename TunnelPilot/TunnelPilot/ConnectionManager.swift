@@ -12,6 +12,7 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var snapshot = TunnelSnapshot.inactive
     @Published private(set) var traffic = TrafficSnapshot.inactive
     @Published private(set) var routes = RouteSnapshot.inactive
+    @Published private(set) var trafficRates = TrafficRates.inactive
     @Published private(set) var connectionLogs: [String] = []
     @Published private(set) var connectedSince: Date?
     @Published private(set) var lastError: String?
@@ -28,6 +29,7 @@ final class ConnectionManager: ObservableObject {
     private var logTailTask: Task<Void, Never>?
     private var logFileIdentity: (device: Int, inode: Int)?
     private var logFileOffset: UInt64 = 0
+    private var lastTrafficSample: (date: Date, sent: UInt64, received: UInt64)?
 
     private static let vpnAgentLogURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("vpnagent.log")
@@ -81,6 +83,11 @@ final class ConnectionManager: ObservableObject {
         guard !isAgentBusy else { return }
         isAgentBusy = true
         defer { isAgentBusy = false }
+
+        guard installer.hasBundledAgent() else {
+            appendLog("agent: [Error] 应用包内缺少 vpnagent 组件（开发构建请重新构建或使用打包版本）")
+            return
+        }
 
         appendLog("agent: [Info] 安装 VPN 服务组件…")
         do {
@@ -229,6 +236,7 @@ final class ConnectionManager: ObservableObject {
                 sentBytes: Int64(clamping: traffic.sentBytes),
                 receivedBytes: Int64(clamping: traffic.receivedBytes)
             )
+            updateTrafficRates(with: traffic)
         case .closed(let message):
             guard connectionState == .connected || connectionState == .disconnecting else { return }
             transitionToDisconnected()
@@ -240,6 +248,8 @@ final class ConnectionManager: ObservableObject {
             snapshot = .inactive
             traffic = .inactive
             routes = .inactive
+            trafficRates = .inactive
+            lastTrafficSample = nil
             connectedSince = nil
             appendLog("connection: [Error] \(message)")
         }
@@ -250,7 +260,24 @@ final class ConnectionManager: ObservableObject {
         snapshot = .inactive
         traffic = .inactive
         routes = .inactive
+        trafficRates = .inactive
+        lastTrafficSample = nil
         connectedSince = nil
+    }
+
+    /// 由相邻两次流量统计差分计算实时速率。
+    private func updateTrafficRates(with traffic: AgentTraffic) {
+        let now = Date()
+        if let last = lastTrafficSample {
+            let interval = now.timeIntervalSince(last.date)
+            if interval > 0 {
+                trafficRates = TrafficRates(
+                    sentPerSecond: max(0, Double(traffic.sentBytes) - Double(last.sent)) / interval,
+                    receivedPerSecond: max(0, Double(traffic.receivedBytes) - Double(last.received)) / interval
+                )
+            }
+        }
+        lastTrafficSample = (date: now, sent: traffic.sentBytes, received: traffic.receivedBytes)
     }
 
     private func applyTunnelInfo(_ info: AgentTunnelInfo) {
@@ -576,7 +603,8 @@ private struct PersistedProfile: Codable {
 }
 
 private enum KeychainStore {
-    private static let service = "keychain.anylink"
+    /// 新版应用自己的服务名：条目 ACL 归属当前应用，不会触发授权弹窗。
+    private static let service = "keychain.tunnelpilot"
 
     static func password(account: String) -> String? {
         var query = baseQuery(account: account)
@@ -589,7 +617,6 @@ private enum KeychainStore {
               let data = result as? Data else {
             return nil
         }
-
         return String(data: data, encoding: .utf8)
     }
 

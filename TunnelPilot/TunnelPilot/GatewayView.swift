@@ -131,6 +131,7 @@ private struct GatewayFormCard: View {
                 HStack(spacing: 8) {
                     NativePopupButton(
                         titles: connectionManager.gateways.map(\.displayName),
+                        isEnabled: !connectionManager.connectionState.isConnected,
                         selection: selectedGatewayIndex
                     )
                     .frame(maxWidth: .infinity)
@@ -143,6 +144,7 @@ private struct GatewayFormCard: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(AppTheme.border, lineWidth: 1)
                     }
+                    .opacity(connectionManager.connectionState.isConnected ? 0.6 : 1)
 
                     Button(action: openProfileManager) {
                         ZStack {
@@ -159,6 +161,7 @@ private struct GatewayFormCard: View {
                     }
                     .buttonStyle(IconSquareButtonStyle())
                     .help("管理配置")
+                    .disabled(connectionManager.connectionState.isConnected)
                 }
             }
 
@@ -177,6 +180,8 @@ private struct GatewayFormCard: View {
                         RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .stroke(AppTheme.border, lineWidth: 1)
                     }
+                    .disabled(connectionManager.connectionState.isConnected)
+                    .opacity(connectionManager.connectionState.isConnected ? 0.6 : 1)
             }
         }
         .padding(.horizontal, 20)
