@@ -11,158 +11,126 @@
 - 当前应用显示名称: **隧道助手 安全客户端**。
 - Xcode 工程内部名称: `TunnelPilot`。
 - 平台: 仅 macOS，当前 Deployment Target 为 macOS 13.5。
-- 当前阶段: 只开发 GUI，通信层使用占位服务，不实际连接 VPN，不访问 `6210/rpc`。
-- 原 Qt 工程和 Go `sslcon` 只作为参考，当前不要修改。
+- 当前阶段: **已完成 vpnagent 真实通信对接与打包分发**，可通过 DMG 分享。
+- 原 Qt 工程只作参考；Go `sslcon` 仓库已打补丁（AF_ROUTE + 日志），见下文。
 
 ## 二、仓库和路径
 
 | 路径 | 说明 |
 |---|---|
 | `/Volumes/MobileDisk/DEV/GO/anylink-client` | 原 Qt 项目，只读参考 |
-| `/Volumes/MobileDisk/DEV/GO/sslcon` | Go 核心和 `vpnagent`，后续通信/路由目标 |
+| `/Volumes/MobileDisk/DEV/GO/sslcon` | Go 核心和 `vpnagent`，**已修改**（见下） |
 | `/Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift` | Swift 子仓库，当前主战场 |
 | `AnyLinkSwift/TunnelPilot` | Xcode 原生 macOS 工程 |
 | `AnyLinkSwift/handoff.md` | 本交接文档 |
+| `AnyLinkSwift/package.sh` | 一键打包脚本（构建 + 签名 + DMG） |
 
 GitHub:
 
 - 仓库: https://github.com/syjjx/AnylinkSwift
 - Swift 子仓库 remote: `https://github.com/syjjx/AnylinkSwift.git`
 - 分支: `main`
-- Git 用户: `syjjx`
-- Git 邮箱: `syjjx@163.com`
-- 最近一次已推送提交: `d8bec13 feat: add TunnelPilot macOS GUI`
+- Git 用户: `syjjx` / 邮箱: `syjjx@163.com`
+- Swift 仓库最近提交: `f5c6e79 feat: 添加应用图标`（未推送）
+- sslcon 仓库最近提交（本地）:
+  - `a510a9b` macOS 路由改用 AF_ROUTE 流水线安装
+  - `382a90f` CONFIG 时按 log_path 重建日志文件
 
-注意: 外层 `/Volumes/MobileDisk/DEV/GO/anylink-client` 是旧 Qt 仓库，remote 不是 Swift 仓库。Git 操作涉及 Swift 工程时，工作目录必须是 `AnyLinkSwift`。
+注意: 外层 `/Volumes/MobileDisk/DEV/GO/anylink-client` 是旧 Qt 仓库，remote 不是 Swift 仓库。Git 操作涉及 Swift 工程时，工作目录必须是 `AnyLinkSwift`；涉及 sslcon 时是 `/Volumes/MobileDisk/DEV/GO/sslcon`。
 
 ## 三、当前工程结构
 
 ```text
-AnyLinkSwift/TunnelPilot/
-├── TunnelPilot.xcodeproj/
+AnyLinkSwift/
+├── package.sh                 # 打包脚本
+├── .gitignore                 # 排除 .DS_Store/xcuserdata/build/
 └── TunnelPilot/
-    ├── TunnelPilotApp.swift
-    ├── ContentView.swift
-    ├── AppDelegate.swift
-    ├── AppTheme.swift
-    ├── Components.swift
-    ├── ConnectionModels.swift
-    ├── ConnectionService.swift
-    ├── ConnectionManager.swift
-    ├── NativePopupButton.swift
-    ├── MenuBarView.swift
-    ├── GatewayView.swift
-    ├── StatusView.swift
-    ├── SettingsView.swift
-    ├── HelpView.swift
-    ├── SidebarView.swift
-    ├── StatusBarView.swift
-    ├── ProfileManagerView.swift
-    ├── ConnectionLogsView.swift
-    └── Assets.xcassets/
+    ├── TunnelPilot.xcodeproj/
+    └── TunnelPilot/
+        ├── TunnelPilotApp.swift
+        ├── ContentView.swift          # 含 VPN 服务组件安装横幅
+        ├── AppDelegate.swift
+        ├── AppTheme.swift
+        ├── Components.swift
+        ├── ConnectionModels.swift
+        ├── ConnectionService.swift   # 协议 + StubConnectionService
+        ├── AgentConnectionService.swift  # 真实 WebSocket JSON-RPC 客户端
+        ├── AgentInstaller.swift      # vpnagent 服务组件安装/卸载
+        ├── ConnectionManager.swift
+        ├── NativePopupButton.swift
+        ├── MenuBarView.swift
+        ├── GatewayView.swift
+        ├── StatusView.swift
+        ├── SettingsView.swift
+        ├── HelpView.swift
+        ├── SidebarView.swift
+        ├── StatusBarView.swift
+        ├── ProfileManagerView.swift
+        ├── ConnectionLogsView.swift
+        └── Assets.xcassets/           # 应用图标（蓝渐变盾牌锁孔）
 ```
 
-### 文件职责
+### 文件职责（新增/变更部分）
 
-- `TunnelPilotApp.swift`: Xcode App 入口、主窗口、详情窗口、配置管理窗口、连接日志窗口、`MenuBarExtra`。
-- `ContentView.swift`: 主窗口手工双栏布局，固定内容尺寸 `820 x 600`。
-- `AppDelegate.swift`: 记录主窗口、拦截关闭按钮、Dock/状态栏应用模式切换，并通过 `NSApp.mainMenu` 安装顶部精简应用菜单。
-- `AppTheme.swift`: 浅色/深色颜色、圆角、卡片样式。
-- `ConnectionModels.swift`: 页面枚举、连接状态、配置、流量、路由和设置数据模型。
-- `ConnectionService.swift`: `ConnectionService` 协议和 `StubConnectionService` 占位实现。
-- `ConnectionManager.swift`: GUI 唯一连接状态源，驱动连接/断开模拟、配置列表、详情数据。
-- `NativePopupButton.swift`: AppKit `NSPopUpButton` 包装器和自定义 Cell。
-- `MenuBarView.swift`: 菜单栏状态图标和菜单栏菜单。
-- `GatewayView.swift`: 网关页、连接卡片、主机选择和配置管理按钮。
-- `StatusView.swift`: 状态参数页和独立的流量/路由详情窗口内容。
-- `SettingsView.swift`: 设置页。
-- `HelpView.swift`: 帮助页。
-- `ProfileManagerView.swift`: 配置管理窗口。
-- `ConnectionLogsView.swift`: 独立连接日志窗口，显示倒序日志并自动定位到最新日志。
+- `AgentConnectionService.swift`: actor 化 WebSocket JSON-RPC 客户端，连接/断开/状态/流量轮询，处理 vpnagent 推送 DISCONNECT/ABORT。
+- `AgentInstaller.swift`: 检测 daemon 安装状态（installed/outdated/missing），osascript 提权执行 `vpnagent install/uninstall`。
+- `ConnectionManager.swift`: 消费通信层事件填充隧道信息/流量/路由；1s 流量差分计算实时速率；vpnagent.log 尾部追踪；VPN 服务组件状态。
+- `MenuBarView.swift`: 连接状态显示合成图（白色 lock 轮廓 + 白色两行速度文本，8pt 等宽，见 ConnectionModels.menuBarImage）。
 
 ## 四、GUI 当前功能
 
 ### 1. 主窗口
 
-- macOS 原生标题栏标题由 `WindowGroup("隧道助手 安全客户端", id: "main")` 提供。
-- 没有自定义标题内容区。
-- 主窗口内容固定为 `820 x 600`。
-- 使用手工双栏，不使用 `NavigationSplitView`，避免系统侧栏材质和宽度干扰。
-- 左侧栏约 `172pt`，包含应用标识、网关/状态/设置/帮助导航和连接状态。
-- 底部状态栏显示连接状态和当前模式。
-- 主窗口使用 AppKit frame autosave，重新打开应用时恢复上次停留的位置和窗口 frame。
-- 多屏场景下通常会恢复到上次所在的屏幕；如果该屏幕已不可用或显示器排列发生变化，由 macOS 调整到可用位置。
+- 固定 `820 x 600`，手工双栏（左侧栏 172pt），AppKit frame autosave 恢复位置。
+- 顶部 VPN 服务组件横幅（非 installed 时显示，布局流内嵌不遮挡内容）。
 
 ### 2. 网关页
 
-- 蓝色渐变连接状态卡。
-- 主机配置区域。
-- 主机下拉框是 AppKit `NSPopUpButton`，不是 SwiftUI `Picker` 或网页 `select`。
-- 右侧配置按钮打开独立“配置管理”窗口。
-- OTP 临时密码输入目前由网关页的 `SecureField` 提供；如果后续要避免系统 Passwords 建议，要沿用已经处理过的普通文本框星号方案，不要随意恢复系统密码字段。
-- 连接按钮只触发 `StubConnectionService`，模拟约 1.5 秒连接，不实际网络通信。
+- 蓝色渐变连接状态卡 + 连接/断开按钮。
+- 主机下拉框是 AppKit `NSPopUpButton`（`NativePopupButton`，新增 `isEnabled` 参数）。
+- **连接建立后禁用**: 主机下拉框、配置管理按钮、OTP 输入框（与原版一致，断开恢复）。
+- 连接按钮走真实 `AgentConnectionService`。
 
 ### 3. 状态页
 
-- 页面标题为“状态”，不是“连接状态”。
 - 显示通道类型、TLS/DTLS 加密套件、DTLS 端口、服务器地址、本地地址、VPN 地址、MTU、DNS。
-- 连接成功后“查看连接详情”按钮打开独立窗口。
+- 数据来自 status RPC（真实），"查看连接详情"打开独立窗口。
 
 ### 4. 流量和路由详情窗口
 
-- 独立 macOS `Window("流量统计和路由详情", id: "connection-details")`，可通过原生标题栏拖动。
-- 显示发送字节、接收字节。
-- 左侧显示“排除路由”，右侧显示“安全路由”。
-- 路由字段为地址和前缀。
-- 当前为占位演示数据，连接成功显示，断开后清空。
+- 独立 `Window("流量统计和路由详情", id: "connection-details")`。
+- 左侧"排除路由"= SplitExclude，右侧"安全路由" = SplitInclude；掩码转前缀位数（同 Qt parseSubnet 语义）。
+- 流量来自 stat RPC（每 1 秒轮询）。
 
 ### 5. 设置页
 
-- 显示启动自动连接、连接后最小化、证书不可信时终止、调试日志、思科协议兼容、不使用 DTLS、使用本地语言等选项。
-- 设置保存到应用配置目录下的 `config.json`，开关变化后立即写盘。
+- 设置项 + **底部"VPN 服务组件"卡片**（横排一行：状态点 + 更新/卸载按钮）。
+- 组件状态: 已安装 / 指向旧版本应用（outdated）/ 未安装（missing）。
+- `SettingRow` 垂直内边距 9。
 
 ### 6. 配置管理
 
-- 独立 macOS `Window("配置管理", id: "profile-manager")`，可拖动。
-- 左侧配置列表，右侧编辑表单。
-- 字段: 名称、主机、用户名、密码、用户组、密钥。
-- 支持新建、删除、保存。
-- 配置保存到应用配置目录下的 `profile.json`；密码不写入 JSON，而是使用 macOS Keychain 保存。
-- `profile.json` 的结构兼容原版：配置名称作为顶层 key，字段为 `host`、`username`、`group`、`secret`。
-- Keychain 使用 service `keychain.anylink`，account 使用配置名称。
-- 配置列表选择已经改为点击时直接加载表单，不依赖 `onChange` 的间接同步，避免点击无反馈。
-- 主机页下拉框显示配置名称；当前默认配置为“备用网关”。
+- 独立 `Window("配置管理", id: "profile-manager")`，左侧列表右侧表单。
+- `profile.json` 兼容原版结构；密码存 Keychain。
+- **Keychain 服务名已改为 `keychain.tunnelpilot`**（不再用原版的 `keychain.anylink`，避免授权弹窗；旧密码不迁移，需重新输入一次）。
+- 密码框 Passwords 建议问题由用户自行处理，以当前代码为准。
 
 ### 7. 连接日志
 
-- 独立 macOS `Window("连接日志", id: "connection-logs")`，默认尺寸为 `692 x 405`。
-- 帮助页的“连接日志”按钮直接打开该独立窗口，不再使用帮助页内的临时 Sheet。
-- 窗口内容不重复显示标题和副标题，日志区域直接占据主体。
-- 日志使用等宽字体、支持文本选择和滚动；最新日志显示在顶部，新日志到达后自动滚动到顶部。
-- 当前日志来自 `ConnectionManager` 的占位连接流程，仅用于 GUI 预览，不读取真实 `vpnagent.log`。
-- 当前占位流程会记录开始连接、连接成功、请求断开、连接关闭和连接失败等信息。
+- 独立 `Window("连接日志", id: "connection-logs")`，倒序显示、自动滚动到顶部。
+- **真实日志**: 尾部追踪 `<临时目录>/vpnagent.log`（每秒轮询，inode 识别 vpnagent 重启重建文件，半行补齐，上限 5000 条）；应用自身事件以 `connection:` 前缀混排。
+
+### 8. 菜单栏
+
+- `MenuBarExtra` label: 未连接 `lock.open`（灰）；连接中 `arrow.triangle.2.circlepath`；已连接 **合成图**（`lock` 白色线条 + 白色两行速度文本 ↑上传/↓下载，绘制为一张 NSImage，绕开 MenuBarExtra 固定字体限制）；失败 `exclamationmark.shield.fill`。
+- 速度显示仅连接状态出现；字号/颜色/行距调整位置: `ConnectionModels.swift` 的 `TrafficRates.menuBarImage(fontSize:)`。
 
 ## 五、菜单栏和窗口生命周期
 
-- macOS 顶部应用菜单（窗口左上方的应用菜单）由 `AppDelegate` 通过 `NSApp.mainMenu` 自定义，当前仅保留 App 和 Edit，移除 File、View、Window、Help。
-- `AppDelegate.applicationDidFinishLaunching` 延迟安装自定义菜单，`applicationDidBecomeActive` 再次幂等安装，避免 SwiftUI 覆盖菜单。
-- `TunnelPilotApp.swift` 当前不使用 `.commandsRemoved()`；顶部应用菜单唯一控制来源是 `AppDelegate` 的 `installMinimalMenu()`。
-- 右上角状态栏图标菜单是另一套独立功能，仍使用 SwiftUI `MenuBarExtra`，不要与顶部应用菜单混淆。
-- 图标由 `ConnectionState.menuBarSymbol` 决定:
-  - 未连接: `lock.open`
-  - 连接中/断开中: `arrow.triangle.2.circlepath`
-  - 已连接: `lock.shield.fill`
-  - 失败: `exclamationmark.shield.fill`
-- 菜单项当前为:
-  - 打开应用
-  - 快速连接/快速断开
-  - 退出应用
-- `AppDelegate.windowShouldClose` 拦截主窗口关闭:
-  - 隐藏主窗口
-  - `NSApp.setActivationPolicy(.accessory)`，隐藏 Dock 图标
-  - 应用继续驻留菜单栏
-- 菜单栏打开应用时恢复 `.regular`，显示主窗口和 Dock 图标。
-- 不要用 `applicationShouldTerminateAfterLastWindowClosed` 让应用退出；当前应返回 `false`。
+- 顶部应用菜单由 `AppDelegate` 的 `installMinimalMenu()` 安装（仅 App + Edit）。
+- 右上角状态栏图标菜单是 SwiftUI `MenuBarExtra`，两套机制互不混淆。
+- `windowShouldClose`: 隐藏主窗口 + `.accessory` 模式，驻留菜单栏；打开时恢复 `.regular`。
+- 不要用 `applicationShouldTerminateAfterLastWindowClosed` 退出；返回 `false`。
 
 ## 六、NativePopupButton 当前基线
 
@@ -173,75 +141,33 @@ AnyLinkSwift/TunnelPilot/
 
 当前 `NativePopupButton.swift` 的重要事实:
 
-- `InsetPopupButtonCell` 自定义标题绘制区域。
-- 用户当前自行设置了 `titleLeftInset = 18`，以后以用户当前值为准。
-- `titleRightInset = 38`，为右侧自绘上下双箭头预留空间。
-- `arrowRightInset = 14`，箭头由 Cell 自己绘制。
-- `drawBorderAndBackground` 不绘制背景和边框，由 SwiftUI 外层负责。
-- `AnchoredPopupButton` 重写 `mouseDown`、`performClick` 和部分键盘处理。
-- 当前菜单定位代码位于 `AnchoredPopupButton.openMenu()`:
+- `InsetPopupButtonCell` 自定义标题绘制区域；`titleLeftInset = 18`、`titleRightInset = 38`、`arrowRightInset = 14`（以用户当前值为准）。
+- `drawBorderAndBackground` 不绘制背景边框，由 SwiftUI 外层负责。
+- `AnchoredPopupButton.openMenu()` 菜单定位（`bounds.minX/minY`），不要擅自改回 `bounds.minY - 3`。
+- **已新增 `isEnabled` 参数**（连接状态下禁用主机下拉），在 `updateItems` 中赋值 `button.isEnabled`，勿再无条件置 true。
 
-```swift
-private func openMenu() {
-    guard
-        isEnabled,
-        let menu,
-        menu.numberOfItems > 0
-    else {
-        return
-    }
-
-    menu.minimumWidth = max(
-        menu.minimumWidth,
-        bounds.width
-    )
-
-    _ = menu.popUp(
-        positioning: nil,
-        at: NSPoint(
-            x: bounds.minX,
-            y: bounds.minY
-        ),
-        in: self
-    )
-}
-```
-
-- 用户明确表示不再使用“从控件底部向下 3pt 展开”的旧实现，后续不要擅自改回 `bounds.minY - 3`。
-- 外层 SwiftUI 负责下拉框 `36pt` 高度、背景、边框和圆角。
-- 内部 AppKit 控件负责菜单、选中项、原生交互。
-- 如果继续修改菜单定位，必须先读取用户当前版本，围绕现有 `openMenu()` 做最小增量修改。
-
-## 七、通信层现状
-
-当前没有真实通信实现:
-
-- `ConnectionService` 只有 `connect(to:otp:)` 和 `disconnect()` 抽象。
-- `StubConnectionService` 只等待并返回，不访问网络。
-- `ConnectionManager` 在模拟连接成功后填充 `TunnelSnapshot.demo`、`TrafficSnapshot.demo` 和 `RouteSnapshot.demo`。
-- 后续接入真实服务时，目标链路是:
+## 七、通信层现状（真实实现）
 
 ```text
-GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> sslcon -> AnyLink/ocserv
+GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 ```
 
-- 真实 RPC 方法: `connect`、`disconnect`、`reconnect`、`status`、`config`、`stat`。
-- 真实通信接入应替换 `ConnectionService` 实现，尽量不改 GUI。
+- `AgentConnectionService`（actor）: 二进制帧，**按请求 id 分发**（sslcon 用 `req.ID.Num` 选方法，不是 method 名）:
+  - status=0, config=1, connect=2, disconnect=3, reconnect=4, interface=5, stat=7
+- 连接流程: 开 WS → config（log_path/log_level 等）→ connect（OTP 拼到密码尾部）→ 成功后启动轮询（stat 1s，status 60s）。
+- 服务端推送: id=3 会话关闭（.closed）、id=6 异常中断（.aborted），断开后 GUI 相应转状态。
+- 事件流 `AsyncStream<AgentEvent>` 驱动 ConnectionManager 更新界面。
+- `ConnectionService` 协议: `connect(to:otp:)` / `disconnect()` / `applySettings(_:)` / `events`；`StubConnectionService` 保留可切回。
+- 细节坑: `JSONSerialization.data(withJSONObject:)` 对字符串 result（config/connect 回复）必须带 `.fragmentsAllowed`，否则 ObjC 异常崩溃（已修）。
 
-## 八、原版和路由优化参考
+## 八、sslcon 补丁与部署
 
-- Qt 原版关闭窗口逻辑参考 `src/anylink.cpp:86-97`，当前 Swift 版本采用菜单栏常驻和 Dock `.accessory` 模式。
-- Qt 原版断线逻辑参考 `src/anylink.cpp:319-335`。
-- AF_ROUTE 优化设计在外层仓库 `docs/afroute-optimization/`:
-  - `routepipe.go`: 流水线路由实现
-  - `routebench.go`: 性能对比
-  - `AnyLink界面设计思路.md`: GUI 视觉参考
-  - `AnyLink安装与首启提权设计.md`: 后续安装/提权流程
-  - `AnyLink自动重连与通配域名设计.md`: 后续自动重连流程
-- AF_ROUTE 补丁目标文件: `/Volumes/MobileDisk/DEV/GO/sslcon/utils/vpnc/vpnc_darwin.go`。
-- 路由优化当前不属于 Swift GUI 任务，除非用户明确安排，不要修改。
+- **AF_ROUTE 路由优化已落地**（`utils/vpnc/vpnc_darwin.go` + 单测，提交 `a510a9b`）: 流水线发送/统一收 ACK，3000 条路由 12s → 25ms。
+- **InitLog 修复**（`rpc/rpc.go`，提交 `382a90f`）: 启用被注释的 `base.InitLog()`，config RPC 后 vpnagent 按 `log_path` 写 `<临时目录>/vpnagent.log`（GUI 日志窗口依赖此文件）。
+- 本机部署: 旧版 daemon（`~/AnyLink/AnyLink.app`）已被新应用接管；`vpnagent`/`sslcon` 随应用 bundle 分发，首启提权安装 daemon（plist `/Library/LaunchDaemons/sslcon.plist`，Label `sslcon`，KeepAlive）。
+- 路由优化不在 Swift 仓库维护；改 sslcon 后需重新打包（构建阶段自动编译）。
 
-## 九、构建和验证
+## 九、构建、打包和验证
 
 工作目录:
 
@@ -249,43 +175,42 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> sslcon -> AnyLink/ocserv
 cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift/TunnelPilot
 ```
 
-构建命令:
+Debug 构建:
 
 ```bash
 xcodebuild -project "TunnelPilot.xcodeproj" -scheme "TunnelPilot" -configuration Debug -sdk macosx -derivedDataPath "/tmp/TunnelPilotDerivedData" build
 ```
 
-最近构建结果: `BUILD SUCCEEDED`（已包含连接日志、顶部应用菜单精简和 Keychain 测试代码清理）。
+打包（Release + 签名 + DMG）:
 
-注意:
+```bash
+cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift && ./package.sh /tmp
+```
 
-- Xcode 文件系统同步组会自动发现 `TunnelPilot/TunnelPilot/*.swift`，通常不需要手工修改 `project.pbxproj`。
-- 构建产物放在 `/tmp/TunnelPilotDerivedData`，不要复制进项目。
-- Swift 工程目前被外层旧仓库的 `.gitignore` 忽略，但 `AnyLinkSwift` 是独立 Git 仓库。
-- Swift 子仓库中可能有本机生成的 `.DS_Store`、`xcuserdata`，不要提交。
-- 当前 Swift 子仓库工作区曾有旧 Swift Package 文件删除状态，提交前必须确认是否为用户有意变更，不要自动清理或恢复。
+工程要点:
+
+- **Xcode 构建阶段 "Embed VPN Agent Binaries"**: 每次构建自动从 `/Volumes/MobileDisk/DEV/GO/sslcon` 编译并拷入 `vpnagent`/`sslcon`（Debug/Release 都生效）。go 用绝对路径 `/usr/local/go/bin/go`（Xcode 脚本环境 PATH 精简）。
+- **`ENABLE_USER_SCRIPT_SANDBOXING = NO`**（目标级）: Xcode 默认给脚本阶段开沙箱，会拒绝 go 写产物目录。
+- **沙箱已移除**（`ENABLE_APP_SANDBOX` 与 entitlements 文件都删了）: 与 osascript 提权/管理 root daemon 冲突；原版 Qt 同样非沙箱。
+- 签名: Apple Development 证书（团队 `AST9E8XUZV`）；**无 Developer ID 证书** → 外部分发遇 Gatekeeper 需右键打开或清 quarantine；要全网静默分发需付费会员 + 公证。
+- 最近构建结果: `BUILD SUCCEEDED`。
 
 ## 十、后续待办
 
-按当前阶段优先级:
-
-1. 继续完善 GUI 视觉和交互，以用户当前的 `GatewayView.swift`、`NativePopupButton.swift` 和 `AppDelegate.swift` 为基线。
-2. 完善菜单栏常驻模式和多个独立窗口的生命周期边界。
-3. 接入真实 `ConnectionService`，实现 WebSocket JSON-RPC，但需用户明确安排后再做。
-4. 将连接日志从占位日志切换为真实 `vpnagent.log` 或通信层日志流，并保留当前窗口交互。
-5. 实现安装/首启提权和 `vpnagent` 管理。
-6. 实现自动重连和通配域名轮换。
-7. 打包、签名、公证和 DMG 分发。
-8. 单独处理 `sslcon` AF_ROUTE 优化补丁。
+1. **自动重连与通配域名轮换**（参考 `AnyLink自动重连与通配域名设计.md`）: ABORT 事件目前仅转失败态，未自动重连。
+2. **公证与正式分发**: 申请 Developer ID 证书 + `notarytool` 公证（`package.sh` 预留步骤）。
+3. **打包产物验证**: 新机器上 DMG 安装 → 首启安装服务组件 → 连接全流程。
+4. 可选: sslcon AF_ROUTE 补丁提交 PR 到上游 bjdgyc/sslcon。
+5. 可选（上架 App Store 才需要）: NEPacketTunnelProvider 路线重写，免 root。
 
 ## 十一、协作规则
 
-- 本项目是对 macOS 下原版 AnyLink 的 Swift 重构；任何修改，特别是功能和交互行为修改，实施前应先查阅原版 AnyLink 的相关实现，以原版行为作为参考基线，除非用户明确要求改变原有行为。
-- 用户已经自行修改的 `GatewayView.swift`、`NativePopupButton.swift` 和 `AppDelegate.swift` 必须作为事实基线；后续修改前必须读取当前版本，不要按旧对话中的代码覆盖。
+- 本项目是对 macOS 下原版 AnyLink 的 Swift 重构；功能/交互修改先查原版实现作基线，除非用户明确改变。
+- 用户已自行修改的文件（`GatewayView.swift`、`NativePopupButton.swift`、`AppDelegate.swift` 及密码框方案）必须作为事实基线，修改前先读当前版本。
 - 修改前先读取当前文件，不要按旧对话中的代码猜测。
 - GUI 文字使用中文；TLS、DTLS、MTU、DNS、VPN、Secret 等标准技术标识可保留。
-- 当前通信层必须保持占位，不得因为按钮、菜单栏或详情页面改动而发起真实连接。
-- 顶部应用菜单（File、Edit、View、Window、Help）与右上角状态栏 `MenuBarExtra` 是两套不同机制；修改其中一套时不要误删或改变另一套。
-- Keychain 密码调试输出仅用于一次性测试，已删除，后续不得将密码写入控制台、连接日志或普通配置文件。
+- 通信层已是真实实现；不要再把界面改动退回占位。
+- 顶部应用菜单与右上角 `MenuBarExtra` 是两套机制，修改一套不要误伤另一套。
+- Keychain 密码不得写入控制台、日志或配置文件。
 - 修改完成后运行 `xcodebuild` 验证。
-- 只有用户明确要求时才 commit/push；提交前排除 `.DS_Store`、`xcuserdata`、构建产物和敏感配置。
+- 只有用户明确要求时才 commit/push；提交前排除 `.DS_Store`、`xcuserdata`、`build/`、构建产物和敏感配置。
