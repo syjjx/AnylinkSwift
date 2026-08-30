@@ -18,9 +18,12 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var agentState: AgentInstallState = .missing
     @Published private(set) var isAgentBusy = false
+    @Published private(set) var agentVersionInfo = AgentVersionInfo(running: nil, bundled: nil)
 
     private let service: any ConnectionService
     private let installer = AgentInstaller()
+    /// 连接成功后收起主窗口（"连接后最小化"设置）时使用。
+    weak var appDelegate: AppDelegate?
     private let configurationURL: URL
     private let profileURL: URL
     private var lastProfileName: String
@@ -68,15 +71,99 @@ final class ConnectionManager: ObservableObject {
         startConsumingEvents()
         startLogTailing()
         refreshAgentState()
+        Task { await refreshAgentVersion() }
         Task { [service] in
             await service.applySettings(initialSettings)
         }
+        if initialSettings.autoConnect {
+            Task { [weak self] in
+                guard let self else { return }
+                await self.autoConnectWhenReady()
+            }
+        }
+    }
+
+    /// 启动时自动连接：等待 vpnagent RPC 就绪后立即连接，不做固定延迟。
+    private func autoConnectWhenReady() async {
+        guard agentState != .missing else {
+            appendLog("connection: [Info] 启动时自动连接已跳过（VPN 服务组件未安装）")
+            return
+        }
+        appendLog("connection: [Info] 启动时自动连接：等待 vpnagent 就绪…")
+        var reachable = false
+        for _ in 0..<40 {
+            if Task.isCancelled { return }
+            if await isAgentReachable() {
+                reachable = true
+                break
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        guard reachable else {
+            appendLog("connection: [Error] 启动时自动连接失败：vpnagent 服务不可达")
+            return
+        }
+        guard connectionState == .disconnected else { return }
+        appendLog("connection: [Info] 启动时自动连接（设置已开启）")
+        connect()
+    }
+
+    /// 探测 vpnagent 的 RPC 端口（127.0.0.1:6210）是否可连接。
+    private func isAgentReachable() async -> Bool {
+        await Task.detached(priority: .utility) {
+            var address = sockaddr_in()
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            address.sin_family = sa_family_t(AF_INET)
+            address.sin_port = UInt16(6210).bigEndian
+            address.sin_addr.s_addr = inet_addr("127.0.0.1")
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else { return false }
+            defer { close(fd) }
+            let result = withUnsafePointer(to: &address) {
+                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                    Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            return result == 0
+        }.value
     }
 
     // MARK: - VPN 服务组件
 
     func refreshAgentState() {
         agentState = installer.currentState()
+    }
+
+    /// 检查运行中 vpnagent 版本（VERSION RPC）与打包版本（bundle 内二进制），
+    /// 运行版本低于打包版本时提示更新。
+    func refreshAgentVersion() async {
+        // daemon 重装后正在重启（新进程监听 6210 前旧连接已失效），
+        // 首次查询失败时等待片刻重试一次。
+        var running: String?
+        for attempt in 0..<2 {
+            do {
+                let version = try await service.queryAgentVersion()
+                running = version.version
+                break
+            } catch {
+                await service.resetConnection()
+                if attempt == 0 {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                }
+            }
+        }
+        let bundled = await installer.bundledSSLConVersion()
+        // 运行版本查不到但 daemon 指向当前 bundle：运行的是旧进程
+        // （无 VERSION 接口），视为需要更新以加载最新组件。
+        let treatUnknown = running == nil && bundled != nil && agentState == .installed
+        agentVersionInfo = AgentVersionInfo(
+            running: running,
+            bundled: bundled,
+            treatUnknownRunningAsUpdate: treatUnknown
+        )
+        if agentVersionInfo.needsUpdate {
+            appendLog("agent: [Info] vpnagent 版本过旧（运行 \(running ?? "未知")，打包 \(bundled ?? "未知")），请更新服务组件")
+        }
     }
 
     func installAgent() async {
@@ -94,6 +181,9 @@ final class ConnectionManager: ObservableObject {
             try await installer.install()
             refreshAgentState()
             appendLog("agent: [Info] VPN 服务组件安装完成")
+            // daemon 已重启，旧连接失效，重置后重新检查版本以刷新界面提示
+            await service.resetConnection()
+            await refreshAgentVersion()
         } catch {
             appendLog("agent: [Error] VPN 服务组件安装失败: \(error.localizedDescription)")
         }
@@ -109,6 +199,8 @@ final class ConnectionManager: ObservableObject {
             try await installer.uninstall()
             refreshAgentState()
             appendLog("agent: [Info] VPN 服务组件已卸载")
+            await service.resetConnection()
+            await refreshAgentVersion()
         } catch {
             appendLog("agent: [Error] VPN 服务组件卸载失败: \(error.localizedDescription)")
         }
@@ -187,6 +279,9 @@ final class ConnectionManager: ObservableObject {
                 lastProfileName = gateway.displayName
                 saveConfiguration()
                 appendLog("connection: [Info] connection established")
+                if settings.minimizeOnConnect {
+                    appDelegate?.minimizeMainWindow()
+                }
             } catch is CancellationError {
                 // A cancelled local operation is not a connection failure.
             } catch {
@@ -212,6 +307,16 @@ final class ConnectionManager: ObservableObject {
             self.transitionToDisconnected()
             appendLog("connection: [Info] connection closed")
         }
+    }
+
+    /// 应用退出前同步断开 VPN（由 AppDelegate 的 terminateLater 流程调用）。
+    func disconnectForTermination() async {
+        guard connectionState == .connected || connectionState == .connecting else { return }
+        appendLog("connection: [Info] 应用退出，断开连接")
+        operation?.cancel()
+        await service.disconnect()
+        transitionToDisconnected()
+        appendLog("connection: [Info] connection closed")
     }
 
     // MARK: - 通信层事件
@@ -290,12 +395,23 @@ final class ConnectionManager: ObservableObject {
             localAddress: info.localAddress,
             vpnAddress: info.vpnAddress,
             mtu: info.mtu == 0 ? "-" : String(info.mtu),
-            dns: info.dns.isEmpty ? "-" : info.dns.joined(separator: ", ")
+            dns: info.dns.isEmpty ? "-" : info.dns.joined(separator: ", "),
+            cstpCompression: Self.compressionText(info.cstpCompression),
+            dtlsCompression: Self.compressionText(info.dtlsCompression)
         )
         routes = RouteSnapshot(
             excluded: info.splitExclude.map { Self.routeEntry(from: $0) },
             secured: info.splitInclude.map { Self.routeEntry(from: $0) }
         )
+    }
+
+    /// 压缩算法可读文本：none → 未启用，空 → 未知。
+    private static func compressionText(_ value: String) -> String {
+        switch value.lowercased() {
+        case "": return "未知"
+        case "none": return "未启用"
+        default: return value
+        }
     }
 
     private static func routeEntry(from value: String) -> RouteEntry {
@@ -394,6 +510,11 @@ final class ConnectionManager: ObservableObject {
     private func trimLogs() {
         guard connectionLogs.count > Self.maxLogEntries else { return }
         connectionLogs.removeFirst(connectionLogs.count - Self.maxLogEntries)
+    }
+
+    /// 清空日志窗口内容（文件追踪偏移保持不变，已读内容不会重新出现）。
+    func clearLogs() {
+        connectionLogs.removeAll()
     }
 
     private static let logDateFormatter: DateFormatter = {
@@ -664,7 +785,7 @@ private struct PersistedConfiguration: Codable {
     var debug = false
     var local = true
     var noDTLS = false
-    var ciscoCompatibility = false
+    var compression = true
 
     private enum CodingKeys: String, CodingKey {
         case lastProfile
@@ -674,7 +795,7 @@ private struct PersistedConfiguration: Codable {
         case debug
         case local
         case noDTLS = "no_dtls"
-        case ciscoCompatibility = "cisco_compat"
+        case compression
     }
 
     init() {}
@@ -687,7 +808,7 @@ private struct PersistedConfiguration: Codable {
         debug = settings.debugLogging
         local = settings.useLocalLanguage
         noDTLS = settings.disableDTLS
-        ciscoCompatibility = settings.ciscoCompatibility
+        compression = settings.compressionEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -702,7 +823,7 @@ private struct PersistedConfiguration: Codable {
         debug = (try? container.decode(Bool.self, forKey: .debug)) ?? false
         local = (try? container.decode(Bool.self, forKey: .local)) ?? true
         noDTLS = (try? container.decode(Bool.self, forKey: .noDTLS)) ?? false
-        ciscoCompatibility = (try? container.decode(Bool.self, forKey: .ciscoCompatibility)) ?? false
+        compression = (try? container.decode(Bool.self, forKey: .compression)) ?? true
     }
 
     var settings: AppSettings {
@@ -711,7 +832,7 @@ private struct PersistedConfiguration: Codable {
         settings.minimizeOnConnect = minimize
         settings.blockUntrustedServers = block
         settings.debugLogging = debug
-        settings.ciscoCompatibility = ciscoCompatibility
+        settings.compressionEnabled = compression
         settings.disableDTLS = noDTLS
         settings.useLocalLanguage = local
         return settings

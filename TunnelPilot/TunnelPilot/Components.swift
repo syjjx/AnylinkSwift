@@ -81,23 +81,6 @@ struct CardTitle: View {
     }
 }
 
-struct DemoNotice: View {
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "info.circle.fill")
-                .foregroundStyle(AppTheme.accent)
-
-            Text("界面预览：当前连接服务仅为本地模拟，不会发起网络请求，也不会启动虚拟专用网络隧道。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .background(AppTheme.accent.opacity(0.07), in: RoundedRectangle(cornerRadius: AppTheme.controlRadius, style: .continuous))
-    }
-}
-
 struct LogoMark: View {
     var size: CGFloat = 42
 
@@ -129,25 +112,25 @@ struct KeyValueRow: View {
     var body: some View {
         HStack(spacing: 20) {
             Text(key)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 12)
 
             if isBadge {
                 Text(value)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(AppTheme.accent)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
                     .background(AppTheme.accent.opacity(0.11), in: Capsule())
             } else {
                 Text(value)
-                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
             }
         }
-        .font(.callout)
-        .padding(.vertical, 11)
+        .padding(.vertical, 8)
     }
 }

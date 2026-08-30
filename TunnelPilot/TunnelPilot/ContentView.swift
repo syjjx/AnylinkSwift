@@ -18,7 +18,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if connectionManager.agentState != .installed {
+            if connectionManager.agentState != .installed || connectionManager.agentVersionInfo.needsUpdate {
                 AgentInstallBanner()
             }
 
@@ -70,7 +70,7 @@ private struct AgentInstallBanner: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: connectionManager.agentState == .outdated
+            Image(systemName: needsUpdate
                 ? "arrow.triangle.2.circlepath"
                 : "exclamationmark.triangle.fill")
                 .foregroundStyle(AppTheme.warning)
@@ -83,7 +83,7 @@ private struct AgentInstallBanner: View {
             Button {
                 Task { await connectionManager.installAgent() }
             } label: {
-                Text(connectionManager.isAgentBusy ? "安装中…" : "立即安装")
+                Text(connectionManager.isAgentBusy ? "处理中…" : buttonTitle)
                     .frame(minWidth: 64)
             }
             .buttonStyle(.borderedProminent)
@@ -106,6 +106,18 @@ private struct AgentInstallBanner: View {
         .background(AppTheme.pageBackground)
     }
 
+    private var needsUpdate: Bool {
+        connectionManager.agentState == .outdated
+            || connectionManager.agentVersionInfo.needsUpdate
+    }
+
+    private var buttonTitle: String {
+        if connectionManager.agentState == .missing {
+            return "立即安装"
+        }
+        return needsUpdate ? "立即更新" : "立即安装"
+    }
+
     private var bannerText: String {
         switch connectionManager.agentState {
         case .outdated:
@@ -113,12 +125,17 @@ private struct AgentInstallBanner: View {
         case .missing:
             return "VPN 服务组件未安装，安装后即可连接"
         case .installed:
+            if connectionManager.agentVersionInfo.needsUpdate {
+                if let running = connectionManager.agentVersionInfo.running {
+                    return "VPN 服务组件版本过旧（运行 \(running)），请点击更新"
+                }
+                return "VPN 服务组件版本未知，请点击更新以加载最新组件"
+            }
             return ""
         }
     }
-}
 
-#Preview {
-    ContentView(appDelegate: AppDelegate())
-        .environmentObject(ConnectionManager())
+    private var runningVersionText: String {
+        connectionManager.agentVersionInfo.running ?? "未知"
+    }
 }

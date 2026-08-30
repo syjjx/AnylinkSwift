@@ -16,6 +16,10 @@ struct TunnelPilotApp: App {
         WindowGroup("隧道助手 安全客户端", id: "main") {
             ContentView(appDelegate: appDelegate)
                 .environmentObject(connectionManager)
+                .onAppear {
+                    connectionManager.appDelegate = appDelegate
+                    appDelegate.connectionManager = connectionManager
+                }
         }
         .windowResizability(.contentSize)
 

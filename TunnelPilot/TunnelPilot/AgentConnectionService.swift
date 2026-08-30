@@ -25,12 +25,28 @@ struct AgentTunnelInfo: Sendable, Equatable {
     var dns: [String] = []
     var splitInclude: [String] = []
     var splitExclude: [String] = []
+    /// 协商的压缩算法（"none"/"lzs"/"oc-lz4"，空串表示未知）
+    var cstpCompression = ""
+    /// DTLS 通道协商的压缩算法（同上）
+    var dtlsCompression = ""
 }
 
 /// stat RPC 返回的流量统计。
 struct AgentTraffic: Sendable, Equatable {
     var sentBytes: UInt64 = 0
     var receivedBytes: UInt64 = 0
+}
+
+/// VERSION RPC 返回的 vpnagent 构建信息（对应 sslcon rpc.versionReply）。
+struct AgentRunningVersion: Sendable, Equatable {
+    /// sslcon 构建版本（如 2.1.0）
+    var version: String
+    /// git commit（可空）
+    var commit: String
+    /// 上报给服务端的 AnyConnect 客户端版本
+    var agentVersion: String
+    /// 编译所用 Go 版本
+    var goVersion: String
 }
 
 enum AgentRPCError: Error, LocalizedError {
@@ -58,6 +74,7 @@ actor AgentConnectionService: ConnectionService {
         static let disconnect = 3
         static let abort = 6
         static let stat = 7
+        static let version = 8
     }
 
     private enum Method {
@@ -66,6 +83,7 @@ actor AgentConnectionService: ConnectionService {
         static let connect = "connect"
         static let disconnect = "disconnect"
         static let stat = "stat"
+        static let version = "version"
     }
 
     nonisolated private static let rpcURL = URL(string: "ws://127.0.0.1:6210/rpc")!
@@ -134,6 +152,47 @@ actor AgentConnectionService: ConnectionService {
         self.settings = settings
         guard isSocketOpen else { return }
         _ = try? await send(Method.config, id: RPCID.config, params: makeConfigParams(settings))
+    }
+
+    /// 查询运行中 vpnagent 的构建版本（VERSION RPC）。
+    func queryAgentVersion() async throws -> AgentRunningVersion {
+        try await openIfNeeded()
+        let response = try await send(Method.version, id: RPCID.version, params: [:])
+        guard let data = response.resultData else {
+            throw AgentRPCError.transport("VERSION 接口无返回")
+        }
+        let reply = try JSONDecoder().decode(AgentVersionReply.self, from: data)
+        return AgentRunningVersion(
+            version: reply.version,
+            commit: reply.commit,
+            agentVersion: reply.agentVersion,
+            goVersion: reply.goVersion
+        )
+    }
+
+    /// 关闭当前连接并清理状态。
+    ///
+    /// daemon 重装/重启后旧 socket 对应的进程已退出，连接可能未被 URLSession
+    /// 感知而停留在半死状态，此时必须显式重建。
+    func resetConnection() async {
+        pollingTask?.cancel()
+        pollingTask = nil
+        statCount = 0
+        let socket = webSocket
+        webSocket = nil
+        isSocketOpen = false
+        socket?.cancel(with: .normalClosure, reason: nil)
+
+        let waiters = openWaiters
+        openWaiters.removeAll()
+        for box in waiters {
+            box.resume(result: false)
+        }
+        let failed = pending
+        pending.removeAll()
+        for (_, box) in failed {
+            box.resume(throwing: AgentRPCError.transport("连接已重置"))
+        }
     }
 
     // MARK: - 连接管理
@@ -355,7 +414,9 @@ actor AgentConnectionService: ConnectionService {
                 mtu: status.mtu,
                 dns: status.dns,
                 splitInclude: status.splitInclude,
-                splitExclude: status.splitExclude
+                splitExclude: status.splitExclude,
+                cstpCompression: status.cstpCompression,
+                dtlsCompression: status.dtlsCompression
             )
             eventSink.continuation?.yield(.tunnelEstablished(info))
         } catch {
@@ -386,8 +447,9 @@ actor AgentConnectionService: ConnectionService {
             "log_level": settings.debugLogging ? "Debug" : "Info",
             "log_path": FileManager.default.temporaryDirectory.path,
             "skip_verify": !settings.blockUntrustedServers,
-            "cisco_compat": settings.ciscoCompatibility,
+            "cisco_compat": true,
             "no_dtls": settings.disableDTLS,
+            "compression": settings.compressionEnabled,
             "agent_name": "AnyLink Secure Client",
             "agent_version": version,
         ]
@@ -410,6 +472,8 @@ private struct AgentStatus: Decodable {
     var dns: [String] = []
     var splitInclude: [String] = []
     var splitExclude: [String] = []
+    var cstpCompression = ""
+    var dtlsCompression = ""
 
     private enum CodingKeys: String, CodingKey {
         case dtlsConnected = "DtlsConnected"
@@ -423,6 +487,8 @@ private struct AgentStatus: Decodable {
         case dns = "DNS"
         case splitInclude = "SplitInclude"
         case splitExclude = "SplitExclude"
+        case cstpCompression = "cstp_compression"
+        case dtlsCompression = "dtls_compression"
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -438,6 +504,8 @@ private struct AgentStatus: Decodable {
         dns = (try? container.decode([String].self, forKey: .dns)) ?? []
         splitInclude = (try? container.decode([String].self, forKey: .splitInclude)) ?? []
         splitExclude = (try? container.decode([String].self, forKey: .splitExclude)) ?? []
+        cstpCompression = (try? container.decode(String.self, forKey: .cstpCompression)) ?? ""
+        dtlsCompression = (try? container.decode(String.self, forKey: .dtlsCompression)) ?? ""
     }
 }
 
@@ -454,6 +522,28 @@ private struct AgentStat: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         bytesSent = (try? container.decode(UInt64.self, forKey: .bytesSent)) ?? 0
         bytesReceived = (try? container.decode(UInt64.self, forKey: .bytesReceived)) ?? 0
+    }
+}
+
+private struct AgentVersionReply: Decodable {
+    var version = ""
+    var commit = ""
+    var agentVersion = ""
+    var goVersion = ""
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case commit
+        case agentVersion = "agent_version"
+        case goVersion = "go_version"
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = (try? container.decode(String.self, forKey: .version)) ?? ""
+        commit = (try? container.decode(String.self, forKey: .commit)) ?? ""
+        agentVersion = (try? container.decode(String.self, forKey: .agentVersion)) ?? ""
+        goVersion = (try? container.decode(String.self, forKey: .goVersion)) ?? ""
     }
 }
 

@@ -28,9 +28,9 @@ struct SettingsView: View {
                         isOn: binding(for: \AppSettings.debugLogging)
                     )
                     SettingRow(
-                        title: "兼容思科协议",
-                        description: "与思科 AnyConnect 协议兼容",
-                        isOn: binding(for: \AppSettings.ciscoCompatibility)
+                        title: "数据压缩",
+                        description: "与服务器协商压缩传输以减少流量",
+                        isOn: binding(for: \AppSettings.compressionEnabled)
                     )
                     SettingRow(
                         title: "不使用 DTLS 通道",
@@ -79,6 +79,8 @@ struct SettingsView: View {
                         .disabled(connectionManager.isAgentBusy)
                     }
                     .controlSize(.small)
+
+                    versionLine
                 }
                 .padding(.horizontal, 21)
                 .padding(.vertical, 10)
@@ -95,6 +97,30 @@ struct SettingsView: View {
         case .installed: return "已安装，服务正常"
         case .outdated: return "服务指向旧版本应用，请点击更新"
         case .missing: return "未安装，请点击更新安装"
+        }
+    }
+
+    @ViewBuilder
+    private var versionLine: some View {
+        let info = connectionManager.agentVersionInfo
+        if info.bundled != nil || info.running != nil {
+            VStack(alignment: .leading, spacing: 3) {
+                if let running = info.running, let bundled = info.bundled {
+                    Text("运行版本 \(running) · 打包版本 \(bundled)")
+                } else if let bundled = info.bundled {
+                    Text("打包版本 \(bundled)")
+                } else if let running = info.running {
+                    Text("运行版本 \(running)")
+                }
+
+                if info.needsUpdate {
+                    Text("检测到组件版本过旧，请点击更新")
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.warning)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -144,6 +170,6 @@ private struct SettingRow: View {
                 Divider()
             }
         }
-        .padding(.vertical, 9)
+        .padding(.vertical, 7)
     }
 }

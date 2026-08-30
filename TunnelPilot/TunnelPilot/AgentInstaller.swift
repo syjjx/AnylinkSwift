@@ -10,6 +10,40 @@ enum AgentInstallState: Equatable, Sendable {
     case missing
 }
 
+/// vpnagent 版本信息（GUI 启动时检查运行版本是否低于打包版本）。
+struct AgentVersionInfo: Equatable, Sendable {
+    /// 运行中 vpnagent 的 sslcon 版本（VERSION RPC 获取，失败为 nil）
+    var running: String?
+    /// 当前应用打包的 sslcon 版本（bundle 内二进制）
+    var bundled: String?
+    /// 运行版本未知（旧进程无 VERSION 接口）时是否视为过旧
+    var treatUnknownRunningAsUpdate = false
+
+    /// 运行版本低于打包版本（两者都已知时有效）；运行版本未知时
+    /// 按 treatUnknownRunningAsUpdate 处理。
+    var needsUpdate: Bool {
+        if let running, let bundled {
+            return Self.compare(running, bundled) < 0
+        }
+        return treatUnknownRunningAsUpdate
+    }
+
+    /// 语义化版本比较：a < b 返回 -1，相等返回 0，a > b 返回 1。
+    /// 仅比较数字段（2.1 < 2.10）；非数字段忽略。
+    static func compare(_ a: String, _ b: String) -> Int {
+        let av = a.split(separator: ".").compactMap { Int($0) }
+        let bv = b.split(separator: ".").compactMap { Int($0) }
+        for index in 0..<max(av.count, bv.count) {
+            let lhs = index < av.count ? av[index] : 0
+            let rhs = index < bv.count ? bv[index] : 0
+            if lhs != rhs {
+                return lhs < rhs ? -1 : 1
+            }
+        }
+        return 0
+    }
+}
+
 enum AgentInstallerError: Error, LocalizedError {
     case executionFailed(Int32, String)
     case binaryMissing
@@ -39,6 +73,47 @@ struct AgentInstaller: Sendable {
     /// 当前 bundle 内的 vpnagent 可执行文件路径。
     var vpnAgentPath: String {
         Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/vpnagent").path
+    }
+
+    /// 当前 bundle 内的 sslcon 可执行文件路径（`version` 子命令只在该入口提供）。
+    var sslconPath: String {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/sslcon").path
+    }
+
+    /// 读取当前应用打包的 sslcon 版本（执行 `sslcon version` 解析首行）。
+    func bundledSSLConVersion() async -> String? {
+        let path = sslconPath
+        return await Task.detached(priority: .utility) {
+            guard FileManager.default.isExecutableFile(atPath: path) else { return nil }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: path)
+            process.arguments = ["version"]
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return nil
+            }
+            var chunks: [Data] = []
+            for pipe in [process.standardOutput, process.standardError] {
+                if let pipe = pipe as? Pipe {
+                    chunks.append(pipe.fileHandleForReading.readDataToEndOfFile())
+                }
+            }
+            let output = String(data: chunks.reduce(Data(), +), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let prefix = "sslcon client: "
+            for line in output.split(separator: "\n") {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix(prefix) {
+                    return String(trimmed.dropFirst(prefix.count))
+                        .trimmingCharacters(in: .whitespaces)
+                }
+            }
+            return nil
+        }.value
     }
 
     /// daemon 当前指向的 vpnagent 路径（未安装返回 nil）。

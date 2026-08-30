@@ -1,6 +1,6 @@
 # Handoff - TunnelPilot macOS GUI 项目
 
-> 更新日期: 2026-08-28
+> 更新日期: 2026-08-30
 > 用途: 新会话从本文档恢复上下文，继续本项目
 
 ---
@@ -19,7 +19,7 @@
 | 路径 | 说明 |
 |---|---|
 | `/Volumes/MobileDisk/DEV/GO/anylink-client` | 原 Qt 项目，只读参考 |
-| `/Volumes/MobileDisk/DEV/GO/sslcon` | Go 核心和 `vpnagent`，**已修改**（见下） |
+| `/Volumes/MobileDisk/DEV/GO/sslcon` | Go 核心和 `vpnagent`，**已修改**（见下）；remote: `origin`=上游 bjdgyc/sslcon，`fork`=syjjx/sslcon |
 | `/Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift` | Swift 子仓库，当前主战场 |
 | `AnyLinkSwift/TunnelPilot` | Xcode 原生 macOS 工程 |
 | `AnyLinkSwift/handoff.md` | 本交接文档 |
@@ -33,8 +33,13 @@ GitHub:
 - Git 用户: `syjjx` / 邮箱: `syjjx@163.com`
 - Swift 仓库最近提交: `f5c6e79 feat: 添加应用图标`（未推送）
 - sslcon 仓库最近提交（本地）:
-  - `a510a9b` macOS 路由改用 AF_ROUTE 流水线安装
+  - `42ebd39` README: 补充 Cisco AnyConnect/ASA 支持说明（当前 HEAD）
+  - `c8d6cb5` vpn: 动态分流可观测性
+  - `3adb512` vpnc(darwin): 添加已存在的路由时跳过而非报错
+  - `0471572` vpn: CONNECT 请求头对齐 openconnect
+  - `22a89fc` auth: 兼容 Cisco ASA 认证流程
   - `382a90f` CONFIG 时按 log_path 重建日志文件
+  - `a510a9b` macOS 路由改用 AF_ROUTE 流水线安装
 
 注意: 外层 `/Volumes/MobileDisk/DEV/GO/anylink-client` 是旧 Qt 仓库，remote 不是 Swift 仓库。Git 操作涉及 Swift 工程时，工作目录必须是 `AnyLinkSwift`；涉及 sslcon 时是 `/Volumes/MobileDisk/DEV/GO/sslcon`。
 
@@ -164,6 +169,14 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 
 - **AF_ROUTE 路由优化已落地**（`utils/vpnc/vpnc_darwin.go` + 单测，提交 `a510a9b`）: 流水线发送/统一收 ACK，3000 条路由 12s → 25ms。
 - **InitLog 修复**（`rpc/rpc.go`，提交 `382a90f`）: 启用被注释的 `base.InitLog()`，config RPC 后 vpnagent 按 `log_path` 写 `<临时目录>/vpnagent.log`（GUI 日志窗口依赖此文件）。
+- **Cisco AnyConnect/ASA 支持**（2026-08-30 合并自 `fork`(syjjx/sslcon) main，快进到 `42ebd39`，本地补丁已在上游）:
+  - auth 阶段 XML 协议兼容: device-id 带平台文本、增加 group-access、移除多余 mac-address-list、group-select 按需输出、认证响应 Cookie 回传、User-Agent 对齐 AnyConnect `<version>` 格式、ASA 错误响应显式报错（`auth/auth.go` + `auth/auth_test.go`）。
+  - CONNECT 隧道请求头对齐 openconnect（`X-CSTP-Address-Type/X-CSTP-Version/X-CSTP-Protocol/X-CSTP-Hostname`，`vpn/tunnel.go`）。
+  - macOS 路由已存在时跳过而非报错，修复"本机局域网路由已存在（EEXIST）导致连接中断"（`utils/vpnc/vpnc_darwin.go` 提交 `3adb512`）。
+  - 动态域名分流可观测性: status 可查看域名→IP 映射、Debug 日志输出嗅探记录（`vpn/tun.go`、`vpn/tunnel.go`、`utils/utils.go`、`session/session.go`、`proto/dtd.go`）。
+  - 已在 Cisco ASA 5545 (v9.14) 全流程实测通过（认证→TLS 隧道→DTLS→路由→DNS→动态分流）；ocserv 亦验证通过。
+- **构建要求**: go.mod 声明 `go 1.26.2`，本机低版本时 `GOTOOLCHAIN` 自动下载。根目录分别执行 `go build -o sslcon sslcon.go` 和 `go build -o vpnagent vpnagent.go`（两入口各自含 main）；`go test ./auth/` 验证单测。当前已用 Go 1.26.2 编译通过，二进制在仓库根目录。
+- **ASA 使用提示**: 服务器发布多个用户组时需 `-g` 指定组名（组不对报 Login failed）；`-l Debug` 可输出完整认证日志（密码已打码）。
 - 本机部署: 旧版 daemon（`~/AnyLink/AnyLink.app`）已被新应用接管；`vpnagent`/`sslcon` 随应用 bundle 分发，首启提权安装 daemon（plist `/Library/LaunchDaemons/sslcon.plist`，Label `sslcon`，KeepAlive）。
 - 路由优化不在 Swift 仓库维护；改 sslcon 后需重新打包（构建阶段自动编译）。
 
@@ -200,7 +213,7 @@ cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift && ./package.sh /tmp
 1. **自动重连与通配域名轮换**（参考 `AnyLink自动重连与通配域名设计.md`）: ABORT 事件目前仅转失败态，未自动重连。
 2. **公证与正式分发**: 申请 Developer ID 证书 + `notarytool` 公证（`package.sh` 预留步骤）。
 3. **打包产物验证**: 新机器上 DMG 安装 → 首启安装服务组件 → 连接全流程。
-4. 可选: sslcon AF_ROUTE 补丁提交 PR 到上游 bjdgyc/sslcon。
+4. 可选: sslcon 本地补丁（AF_ROUTE/InitLog/ASA 支持）已并入 `fork`(syjjx/sslcon) main；如需可再提交 PR 到上游 bjdgyc/sslcon。
 5. 可选（上架 App Store 才需要）: NEPacketTunnelProvider 路线重写，免 root。
 
 ## 十一、协作规则

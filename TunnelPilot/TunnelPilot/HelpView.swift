@@ -16,7 +16,7 @@ struct HelpView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
 
-                Text("版本 0.1.0  |  界面预览")
+                Text("版本 \(appVersion)")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -44,6 +44,9 @@ struct HelpView: View {
         .sheet(item: $activeSheet) { sheet in
             HelpSheetView(sheet: sheet)
         }
+    }
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 }
 
@@ -91,7 +94,7 @@ private struct HelpSheetView: View {
                     .keyboardShortcut(.cancelAction)
             }
 
-            Text("请只连接到信任的网关。证书验证和虚拟专用网络权限将在接入真实通信服务时加入。")
+            Text("请只连接到信任的网关。连接前请留意服务器证书验证结果，证书不可信时连接将被中止。")
                 .foregroundStyle(.secondary)
         }
         .padding(24)

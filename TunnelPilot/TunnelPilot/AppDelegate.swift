@@ -4,18 +4,65 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private static let mainWindowAutosaveName = "TunnelPilotMainWindow"
+    private static let bundleID = "com.Syjjx.TunnelPilot"
 
     private(set) weak var mainWindow: NSWindow?
+    /// 供"应用退出时断开连接"使用（TunnelPilotApp 注入）。
+    weak var connectionManager: ConnectionManager?
+
+    private var isDuplicateInstance = false
+    private var didReplyTermination = false
 
     // MARK: - App 生命周期
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 单实例：已有实例在运行时激活它并退出自身
+        if Self.activateExistingInstanceIfAny() {
+            isDuplicateInstance = true
+            NSApp.terminate(nil)
+            return
+        }
+
         NSApp.setActivationPolicy(.regular)
 
         // SwiftUI 启动时会重写 mainMenu,延迟一拍再接管更稳
         DispatchQueue.main.async { [weak self] in
             self?.installMinimalMenu()
         }
+    }
+
+    /// 应用退出前断开 VPN（对齐原版 Qt：退出即断网）。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !isDuplicateInstance, let connectionManager, connectionManager.connectionState == .connected else {
+            return .terminateNow
+        }
+
+        didReplyTermination = false
+        Task { @MainActor in
+            await connectionManager.disconnectForTermination()
+            self.finishTermination()
+        }
+        // 兜底：daemon 无响应时最多等待 3 秒后退出
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            self?.finishTermination()
+        }
+        return .terminateLater
+    }
+
+    private func finishTermination() {
+        guard !didReplyTermination else { return }
+        didReplyTermination = true
+        NSApp.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// 若已有同 bundle id 的实例在运行，激活其窗口并返回 true。
+    private static func activateExistingInstanceIfAny() -> Bool {
+        let others = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard let existing = others.first else { return false }
+        existing.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        return true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -144,6 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         mainWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 收起主窗口（等同关窗行为：orderOut + 驻留菜单栏）。
+    /// 供"连接后最小化"设置使用。
+    func minimizeMainWindow() {
+        guard let mainWindow, mainWindow.isVisible else { return }
+        mainWindow.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
     }
 }
 

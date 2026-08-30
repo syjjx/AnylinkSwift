@@ -5,6 +5,9 @@ struct SidebarView: View {
     @EnvironmentObject private var connectionManager: ConnectionManager
     @State private var pulse = false
 
+    private static let appVersion =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
@@ -14,7 +17,7 @@ struct SidebarView: View {
                     Text("隧道助手")
                         .font(.system(size: 16, weight: .bold))
 
-                    Text("版本 0.1.0")
+                    Text("版本 \(Self.appVersion)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

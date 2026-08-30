@@ -25,10 +25,6 @@ struct StatusBarView: View {
             }
 
             Spacer()
-
-            Text("界面预览 | 未建立网络连接")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 18)
         .frame(height: 28)

@@ -158,11 +158,6 @@ struct TrafficSnapshot: Sendable {
     var receivedBytes: Int64
 
     static let inactive = TrafficSnapshot(sentBytes: 0, receivedBytes: 0)
-
-    static let demo = TrafficSnapshot(
-        sentBytes: 2_260_000,
-        receivedBytes: 7_370_000
-    )
 }
 
 /// 隧道实时速率（字节/秒），由流量统计差分得出。
@@ -235,21 +230,6 @@ struct RouteSnapshot: Sendable {
     var secured: [RouteEntry]
 
     static let inactive = RouteSnapshot(excluded: [], secured: [])
-
-    static let demo = RouteSnapshot(
-        excluded: [
-            RouteEntry(address: "192.168.0.0", prefix: "24"),
-            RouteEntry(address: "127.0.0.0", prefix: "8"),
-            RouteEntry(address: "1.1.8.0", prefix: "24"),
-            RouteEntry(address: "1.2.4.0", prefix: "24"),
-            RouteEntry(address: "1.8.1.0", prefix: "24"),
-            RouteEntry(address: "1.8.8.0", prefix: "24"),
-            RouteEntry(address: "1.12.0.0", prefix: "14"),
-            RouteEntry(address: "1.18.128.0", prefix: "24"),
-            RouteEntry(address: "1.24.0.0", prefix: "13")
-        ],
-        secured: []
-    )
 }
 
 struct TunnelSnapshot: Sendable {
@@ -262,6 +242,10 @@ struct TunnelSnapshot: Sendable {
     var vpnAddress: String
     var mtu: String
     var dns: String
+    /// TLS 通道压缩（"未启用"/"lzs"/"oc-lz4"）
+    var cstpCompression: String
+    /// DTLS 通道压缩（同上）
+    var dtlsCompression: String
 
     static let inactive = TunnelSnapshot(
         channelType: "暂无活动隧道",
@@ -272,19 +256,9 @@ struct TunnelSnapshot: Sendable {
         localAddress: "-",
         vpnAddress: "-",
         mtu: "-",
-        dns: "-"
-    )
-
-    static let demo = TunnelSnapshot(
-        channelType: "DTLS",
-        tlsCipherSuite: "TLS_AES_256_GCM_SHA384",
-        dtlsCipherSuite: "ECDHE_RSA_AES_256_GCM",
-        dtlsPort: "4321",
-        serverAddress: "198.51.100.42",
-        localAddress: "192.0.2.18",
-        vpnAddress: "10.231.0.14",
-        mtu: "1333",
-        dns: "10.99.99.1"
+        dns: "-",
+        cstpCompression: "-",
+        dtlsCompression: "-"
     )
 }
 
@@ -293,7 +267,7 @@ struct AppSettings: Sendable {
     var minimizeOnConnect = true
     var blockUntrustedServers = true
     var debugLogging = false
-    var ciscoCompatibility = false
+    var compressionEnabled = true
     var disableDTLS = false
     var useLocalLanguage = true
 }

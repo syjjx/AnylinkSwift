@@ -10,6 +10,8 @@ struct StatusView: View {
             ("通道类型", snapshot.channelType),
             ("TLS 加密套件", snapshot.tlsCipherSuite),
             ("DTLS 加密套件", snapshot.dtlsCipherSuite),
+            ("TLS 通道压缩", snapshot.cstpCompression),
+            ("DTLS 通道压缩", snapshot.dtlsCompression),
             ("DTLS 端口", snapshot.dtlsPort),
             ("服务器地址", snapshot.serverAddress),
             ("本地地址", snapshot.localAddress),
