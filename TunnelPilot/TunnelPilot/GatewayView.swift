@@ -65,6 +65,7 @@ private struct GatewayHeroCard: View {
                 .font(.system(size: 15, weight: .semibold))
                 .padding(.horizontal, 22)
                 .frame(height: 42)
+                .contentShape(Capsule())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white)
