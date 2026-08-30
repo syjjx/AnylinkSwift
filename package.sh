@@ -40,11 +40,19 @@ codesign --force --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict "$APP" || { echo "错误: 签名校验失败" >&2; exit 1; }
 
 echo "== 3/4 生成 DMG =="
+# 暂存目录：应用 + Applications 快捷方式，方便拖入安装
+STAGING_DIR="$DERIVED_DATA/dmg-staging"
+rm -rf "$STAGING_DIR"
+mkdir -p "$STAGING_DIR"
+cp -R "$APP" "$STAGING_DIR/"
+ln -s /Applications "$STAGING_DIR/Applications"
+
 DMG="$OUT_DIR/隧道助手.dmg"
 rm -f "$DMG"
 hdiutil create -volname "隧道助手 安全客户端" \
-    -srcfolder "$APP" \
+    -srcfolder "$STAGING_DIR" \
     -ov -format UDZO "$DMG" >/dev/null
+rm -rf "$STAGING_DIR"
 
 echo "== 4/4 完成 =="
 echo "  App: $APP"
