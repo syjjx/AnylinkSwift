@@ -24,7 +24,12 @@ enum AppTheme {
         endPoint: .bottomTrailing
     )
 
-    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+    /// 生成适配深浅色的动态颜色。
+    /// 必须 nonisolated：工程默认 MainActor 隔离，NSColor 的动态 provider
+    /// 闭包会被 AppKit 在任意线程（如 SwiftUI DisplayLink 渲染队列）调用，
+    /// 若闭包继承 MainActor 隔离会触发 executor 断言崩溃
+    /// （macOS 15.x 上打开设置页闪退，EXC_BREAKPOINT）。
+    nonisolated private static func adaptive(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             let value = isDark ? dark : light
