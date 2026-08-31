@@ -787,7 +787,9 @@ private struct PersistedProfile: Codable {
 }
 
 private enum KeychainStore {
-    /// 新版应用自己的服务名：条目 ACL 归属当前应用，不会触发授权弹窗。
+    /// 服务名：与老版本保持一致（旧条目无需迁移）。
+    /// 注意：条目 ACL 设为"允许所有应用访问"，因为分发版是 ad-hoc 签名，
+    /// 每次构建 CDHash 都变，若 ACL 绑定具体 App 会导致 Keychain 反复弹授权框。
     private static let service = "keychain.tunnelpilot"
 
     static func password(account: String) -> String? {
@@ -807,16 +809,31 @@ private enum KeychainStore {
     static func save(password: String, account: String) {
         let data = Data(password.utf8)
         let query = baseQuery(account: account)
+
+        // 1. 先只更新密码值（保证保存必然成功，不受 ACL 迁移影响）
         let attributes: [String: Any] = [kSecValueData as String: data]
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-
         if updateStatus == errSecItemNotFound {
-            var item = query
-            item[kSecValueData as String] = data
-            let addStatus = SecItemAdd(item as CFDictionary, nil)
+            // 条目不存在：用旧式 API 创建"允许所有应用访问、无提示"的条目。
+            // 现代 SecItemAdd 无法设置该 ACL（默认绑定创建它的应用）。
+            let addStatus = addItemPermissive(password: password, account: account)
             reportFailure(addStatus, operation: "save")
-        } else {
+            return
+        }
+        guard updateStatus == errSecSuccess else {
             reportFailure(updateStatus, operation: "save")
+            return
+        }
+
+        // 2. 条目已存在：尽力把 ACL 也刷成"允许所有应用"，
+        //    覆盖老版本创建的限制性条目（ad-hoc 签名身份变化导致反复弹窗）。
+        //    老条目若带 change_acl 限制，此步可能弹一次授权（允许后即永久生效）；
+        //    若系统不允许更新 ACL 则忽略失败，不影响密码保存。
+        if let access = permissiveAccess() {
+            _ = SecItemUpdate(
+                query as CFDictionary,
+                [kSecAttrAccess as String: access] as CFDictionary
+            )
         }
     }
 
@@ -824,6 +841,71 @@ private enum KeychainStore {
         let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status != errSecItemNotFound else { return }
         reportFailure(status, operation: "delete")
+    }
+
+    /// 构建一个"允许所有应用访问、无用户提示"的 SecAccess。
+    /// 核心是 SecACLCreateWithSimpleContents 的 applications 传 nil（任意应用），
+    /// promptSelector 传空（不弹窗）。
+    private static func permissiveAccess() -> SecAccess? {
+        var access: SecAccess?
+        guard SecAccessCreate(service as CFString, [] as CFArray, &access) == errSecSuccess,
+              let access else {
+            return nil
+        }
+        var acl: SecACL?
+        let status = SecACLCreateWithSimpleContents(
+            access, nil, "TunnelPilot 凭据" as CFString, SecKeychainPromptSelector(), &acl
+        )
+        return status == errSecSuccess ? access : nil
+    }
+
+    /// 旧式 API 创建条目：与 permissiveAccess 配合实现"允许所有应用"。
+    /// 仅用于新条目创建（现代 API 建不出这种 ACL）。
+    /// 注：SecKeychain 系列 API 已废弃但功能可用；以下常量未随 Swift 导入，
+    /// 使用 SecKeychainItem.h 中定义的原始值（kSecServiceItemAttr=13、
+    /// kSecAccountItemAttr=12、kSecGenericPasswordItemClass='genp'）。
+    private static let legacyServiceAttr: UInt32 = 13   // kSecServiceItemAttr（SecKeychainAttrType）
+    private static let legacyAccountAttr: UInt32 = 12   // kSecAccountItemAttr
+    private static let legacyGenericPasswordClass = SecItemClass(rawValue: 0x67656E70)! // 'genp'
+
+    private static func addItemPermissive(password: String, account: String) -> OSStatus {
+        guard let access = permissiveAccess() else { return errSecParam }
+
+        let serviceBytes = Array(service.utf8)
+        let accountBytes = Array(account.utf8)
+        let passwordBytes = Array(password.utf8)
+
+        return serviceBytes.withUnsafeBufferPointer { serviceBuf in
+            accountBytes.withUnsafeBufferPointer { accountBuf in
+                passwordBytes.withUnsafeBufferPointer { passwordBuf in
+                    var serviceAttr = SecKeychainAttribute(
+                        tag: legacyServiceAttr,
+                        length: UInt32(serviceBuf.count),
+                        data: UnsafeMutableRawPointer(mutating: serviceBuf.baseAddress)
+                    )
+                    var accountAttr = SecKeychainAttribute(
+                        tag: legacyAccountAttr,
+                        length: UInt32(accountBuf.count),
+                        data: UnsafeMutableRawPointer(mutating: accountBuf.baseAddress)
+                    )
+                    var attrs = [serviceAttr, accountAttr]
+                    var attrList = SecKeychainAttributeList(
+                        count: UInt32(attrs.count),
+                        attr: &attrs
+                    )
+                    // keychain 传 nil 表示默认登录钥匙串；access 决定 ACL
+                    return SecKeychainItemCreateFromContent(
+                        legacyGenericPasswordClass,
+                        &attrList,
+                        UInt32(passwordBuf.count),
+                        passwordBuf.baseAddress,
+                        nil,
+                        access,
+                        nil
+                    )
+                }
+            }
+        }
     }
 
     private static func baseQuery(account: String) -> [String: Any] {

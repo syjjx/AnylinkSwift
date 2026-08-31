@@ -129,6 +129,7 @@ AnyLinkSwift/
 
 - 独立 `Window("配置管理", id: "profile-manager")`，左侧列表右侧表单。
 - `profile.json` 兼容原版结构；密码存 Keychain（服务名 `keychain.tunnelpilot`，旧密码不迁移）。
+- **Keychain 条目 ACL 为"允许所有应用访问"**（2026-08-31，勿改回应用绑定）：分发版是 ad-hoc 签名，每次构建 CDHash 都变，若 ACL 绑定具体 App，Keychain 会把每个新构建当成新应用反复弹授权框（GitHub 构建版曾报此问题）。用旧式 `SecKeychainItemCreateFromContent` + `SecACLCreateWithSimpleContents(applications: nil)` 创建；`save()` 会尽力把已有条目的 ACL 也刷成允许所有应用。代价：本机任意进程可读该密码；若以后改 Developer ID 签名可改回应用绑定 ACL。
 
 ### 7. 连接日志
 
