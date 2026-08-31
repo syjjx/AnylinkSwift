@@ -47,6 +47,18 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             build
 
+      - name: Ad-hoc sign app (避免 Gatekeeper 判为“已损坏”)
+        run: |
+          APP="${{ runner.temp }}/build/Build/Products/Release/TunnelPilot.app"
+          # Xcode 26 的 ld 即使 CODE_SIGNING_ALLOWED=NO 也会给主二进制嵌入
+          # linker-signed ad-hoc 签名，但 bundle 没有正式签名（无 _CodeSignature），
+          # 签名与内容不一致 → Gatekeeper 报“已损坏”且没有“仍要打开”。
+          # 这里对 bundle 整体做 ad-hoc 签名，让签名完整一致 → 变为“未信任但可打开”。
+          codesign --force --sign - "$APP/Contents/MacOS/vpnagent"
+          codesign --force --sign - "$APP/Contents/MacOS/sslcon"
+          codesign --force --sign - "$APP"
+          codesign --verify --deep --strict "$APP" || { echo "签名校验失败" >&2; exit 1; }
+
       - name: Create DMG
         run: |
           APP="${{ runner.temp }}/build/Build/Products/Release/TunnelPilot.app"

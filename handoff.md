@@ -307,6 +307,7 @@ clone 到 `~/DEV/GO/sslcon` 后 Embed 脚本零配置（默认路径已通用化
 
 ### 已修复
 
+- **CI 无签名 DMG 在其它 Mac 报"已损坏"且无"仍要打开"**（2026-08-31）: Xcode 26 的 ld 即使 `CODE_SIGNING_ALLOWED=NO` 也会给主二进制嵌入 linker-signed ad-hoc 签名，但 bundle 无正式签名（无 `_CodeSignature`），签名与内容不一致 → Gatekeeper 判"已损坏"（只能移到废纸篓，无"仍要打开"）。修复: workflow 构建后对 bundle 整体做 ad-hoc 签名（`codesign --force --sign -`，先签 vpnagent/sslcon 再签 app，`codesign --verify --deep --strict` 校验）。产物变为"未信任但签名完整"→ 恢复"仍要打开"。注意: 无签名/仅 linker-signed 的 app 在其它 Mac 都会这样，本地 `package.sh` 因用真实证书签名不受影响。
 - **开发构建误报"VPN 服务指向旧版本应用"**（`70ca4dd`）: `.outdated` 原为纯路径比对（plist 指向路径 ≠ 当前 bundle 路径），Xcode 开发构建（bundle 在 DerivedData/自定义路径）与 daemon 指向的 `/Applications` 打包版路径不同，即使运行版本 == 打包版本也误报。修复: 横幅/设置页改按版本判断——`.outdated` 但运行版本 ≥ 打包版本（`agentNeedsAttention == false`）视为可用不提示；运行版本未知（旧进程无 VERSION）仍保守提示（`treatUnknown` 已覆盖 `.outdated`）。涉及 `ConnectionManager.swift`（新增 `agentNeedsAttention`）、`ContentView.swift`（横幅条件）、`SettingsView.swift`（状态文字/颜色）。
 
 ### 后续待办
