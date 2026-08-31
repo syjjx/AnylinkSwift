@@ -153,9 +153,9 @@ final class ConnectionManager: ObservableObject {
             }
         }
         let bundled = await installer.bundledSSLConVersion()
-        // 运行版本查不到但 daemon 指向当前 bundle：运行的是旧进程
-        // （无 VERSION 接口），视为需要更新以加载最新组件。
-        let treatUnknown = running == nil && bundled != nil && agentState == .installed
+        // 运行版本查不到但 daemon 已安装（无论指向当前 bundle 还是其他副本）：
+        // 运行的是旧进程（无 VERSION 接口），无法证明其不落后，视为需要更新。
+        let treatUnknown = running == nil && bundled != nil && agentState != .missing
         agentVersionInfo = AgentVersionInfo(
             running: running,
             bundled: bundled,
@@ -164,6 +164,13 @@ final class ConnectionManager: ObservableObject {
         if agentVersionInfo.needsUpdate {
             appendLog("agent: [Info] vpnagent 版本过旧（运行 \(running ?? "未知")，打包 \(bundled ?? "未知")），请更新服务组件")
         }
+    }
+
+    /// 是否需要提示用户处理 VPN 服务组件（顶部横幅显示条件）。
+    /// 未安装、或 daemon 指向的 vpnagent 版本落后于当前应用打包版本时提示；
+    /// daemon 指向其他路径但运行版本不落后（如 Xcode 开发构建）时视为可用，不提示。
+    var agentNeedsAttention: Bool {
+        agentState == .missing || agentVersionInfo.needsUpdate
     }
 
     func installAgent() async {

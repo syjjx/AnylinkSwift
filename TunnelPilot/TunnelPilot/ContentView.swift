@@ -18,7 +18,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if connectionManager.agentState != .installed || connectionManager.agentVersionInfo.needsUpdate {
+            if connectionManager.agentNeedsAttention {
                 AgentInstallBanner()
             }
 
@@ -106,9 +106,10 @@ private struct AgentInstallBanner: View {
         .background(AppTheme.pageBackground)
     }
 
+    /// 版本层面是否需要更新（横幅图标/按钮文案使用；显示条件见
+    /// ConnectionManager.agentNeedsAttention）。
     private var needsUpdate: Bool {
-        connectionManager.agentState == .outdated
-            || connectionManager.agentVersionInfo.needsUpdate
+        connectionManager.agentVersionInfo.needsUpdate
     }
 
     private var buttonTitle: String {

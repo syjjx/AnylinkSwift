@@ -88,9 +88,12 @@ struct SettingsView: View {
     }
 
     private var statusText: String {
+        let info = connectionManager.agentVersionInfo
         switch connectionManager.agentState {
         case .installed: return "已安装，服务正常"
-        case .outdated: return "服务指向旧版本应用，请点击更新"
+        case .outdated: return info.needsUpdate
+            ? "服务指向旧版本应用，请点击更新"
+            : "已安装，服务正常"
         case .missing: return "未安装，请点击更新安装"
         }
     }
@@ -120,9 +123,11 @@ struct SettingsView: View {
     }
 
     private var statusColor: Color {
+        let info = connectionManager.agentVersionInfo
         switch connectionManager.agentState {
         case .installed: return AppTheme.success
-        case .outdated, .missing: return AppTheme.warning
+        case .outdated: return info.needsUpdate ? AppTheme.warning : AppTheme.success
+        case .missing: return AppTheme.warning
         }
     }
 
