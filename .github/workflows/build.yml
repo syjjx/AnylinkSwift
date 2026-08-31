@@ -1,0 +1,88 @@
+name: Build & Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - 'handoff.md'
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build DMG (unsigned)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout AnyLinkSwift
+        uses: actions/checkout@v6
+
+      - name: Checkout sslcon
+        uses: actions/checkout@v6
+        with:
+          repository: syjjx/sslcon
+          path: sslcon
+
+      - name: Set up Go (for embedded vpnagent/sslcon)
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: sslcon/go.mod
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          go version
+
+      - name: Build Release app (unsigned)
+        env:
+          SSLCON_REPO: ${{ github.workspace }}/sslcon
+          GO_BIN: go
+        run: |
+          cd TunnelPilot
+          xcodebuild -project TunnelPilot.xcodeproj \
+            -scheme TunnelPilot \
+            -configuration Release \
+            -sdk macosx \
+            -derivedDataPath "${{ runner.temp }}/build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Create DMG
+        run: |
+          APP="${{ runner.temp }}/build/Build/Products/Release/TunnelPilot.app"
+          test -d "$APP" || { echo "未找到构建产物 $APP" >&2; exit 1; }
+          STAGING="${{ runner.temp }}/dmg-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "隧道助手 安全客户端" \
+            -srcfolder "$STAGING" \
+            -ov -format UDZO "${{ runner.temp }}/TunnelPilot.dmg"
+          cp "${{ runner.temp }}/TunnelPilot.dmg" TunnelPilot.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TunnelPilot-DMG
+          path: TunnelPilot.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: TunnelPilot-DMG
+          path: dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/TunnelPilot.dmg
+          generate_release_notes: true
