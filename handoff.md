@@ -31,7 +31,9 @@ GitHub:
 - Swift 子仓库 remote: `https://github.com/syjjx/AnylinkSwift.git`
 - 分支: `main`
 - Git 用户: `syjjx` / 邮箱: `syjjx@163.com`
-- Swift 仓库最近提交（均已推送）:
+- Swift 仓库最近提交（`70ca4dd` 已提交未推送，其余均已推送）:
+  - `70ca4dd` fix: 组件版本一致时不再误报指向旧版本应用（.outdated 按版本判断）
+  - `29c199b` docs: 更新 handoff 至第二期功能与交互优化完成状态
   - `565bd77` fix: 网关页连接按钮点击区域覆盖整个胶囊（contentShape）
   - `8c07835` build: DMG 打包加入 Applications 快捷方式，便于拖入安装
   - `040fcec` feat: 版本检查、压缩开关、单实例与多项体验优化
@@ -91,7 +93,7 @@ AnyLinkSwift/
 ### 1. 主窗口
 
 - 固定 `820 x 600`，手工双栏（左侧栏 172pt），AppKit frame autosave 恢复位置。
-- 顶部 VPN 服务组件横幅：非 installed **或运行版本过旧**时显示，按钮"立即安装/立即更新"。
+- 顶部 VPN 服务组件横幅：**未安装或运行版本过旧**时显示，按钮"立即安装/立即更新"。注意 `.outdated`（daemon 指向其他路径）但运行版本 ≥ 打包版本时不提示（如 Xcode 开发构建，见第十一节）。
 - **单实例**: 重复启动会激活已有实例并退出（AppDelegate.activateExistingInstanceIfAny）。
 - **退出即断开**: ⌘Q/菜单退出时若已连接，先发 disconnect RPC（最多等 3s）再退出（对齐原版 Qt）；强杀进程则保持连接。
 
@@ -176,7 +178,7 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 ## 八、启动行为与版本检查
 
 - **启动自动连接**（设置开启时）: `autoConnectWhenReady()` 探测 127.0.0.1:6210 TCP 端口（每 500ms，上限 20s），就绪立即 connect；组件未安装（missing）时跳过并记日志。
-- **组件版本检查**: 启动时 `refreshAgentVersion()` —— VERSION RPC 拿运行版本（失败时等 1.5s 重试一次），`bundledSSLConVersion()` 拿打包版本；运行 < 打包 → 横幅提示"点击更新"；运行版本查不到但 daemon 指向当前 bundle → 视为旧进程，提示更新。
+- **组件版本检查**: 启动时 `refreshAgentVersion()` —— VERSION RPC 拿运行版本（失败时等 1.5s 重试一次），`bundledSSLConVersion()` 拿打包版本；运行 < 打包 → 横幅提示"点击更新"；运行版本查不到但 daemon 已安装（无论指向当前 bundle 还是其他副本）→ 视为旧进程，提示更新。横幅统一按 `agentNeedsAttention`（missing 或版本落后）显示；daemon 指向其他路径但运行版本 ≥ 打包版本时不提示。
 - **连接后最小化**: connect 成功且设置开启 → `appDelegate?.minimizeMainWindow()`。
 - **退出断开**: `applicationShouldTerminate` 返回 `.terminateLater`，Task 发 disconnect RPC 后 `reply(toApplicationShouldTerminate:)`；3s 兜底超时。重复实例（`isDuplicateInstance`）退出时跳过断开。
 
@@ -233,6 +235,10 @@ cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift && ./package.sh /tmp
 
 - **新 mac 首次连接偶发失败**: 原版 AnyLink 卸载后可能残留旧 vpnagent 进程占用 6210（GUI 连到旧 daemon，报 "tun0 exist" 类错误——旧版 sslcon 用 water 库建 tun0），重启应用/清理残留后恢复。暂未处理，后续可考虑: 安装时 `bootout` 旧服务、GUI 连接前校验 daemon 版本并拦截。
 - `useLocalLanguage` 设置项已从 UI 隐藏，数据层字段保留（AppSettings/PersistedConfiguration）。
+
+### 已修复
+
+- **开发构建误报"VPN 服务指向旧版本应用"**（`70ca4dd`）: `.outdated` 原为纯路径比对（plist 指向路径 ≠ 当前 bundle 路径），Xcode 开发构建（bundle 在 DerivedData/自定义路径）与 daemon 指向的 `/Applications` 打包版路径不同，即使运行版本 == 打包版本也误报。修复: 横幅/设置页改按版本判断——`.outdated` 但运行版本 ≥ 打包版本（`agentNeedsAttention == false`）视为可用不提示；运行版本未知（旧进程无 VERSION）仍保守提示（`treatUnknown` 已覆盖 `.outdated`）。涉及 `ConnectionManager.swift`（新增 `agentNeedsAttention`）、`ContentView.swift`（横幅条件）、`SettingsView.swift`（状态文字/颜色）。
 
 ### 后续待办
 
