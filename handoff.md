@@ -232,6 +232,32 @@ cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift && ./package.sh /tmp
 - 版本显示（侧栏/帮助页/config 上报）统一读 `CFBundleShortVersionString`（1.0）。
 - 最近构建结果: `BUILD SUCCEEDED`。
 
+### 打包失败排查（2026-08-31 已修复）
+
+**症状**: `package.sh` 构建阶段失败，`GenerateAssetSymbols` 报:
+
+```
+Assets.xcassets: error: Failed to write Swift generated asset symbols.
+    Description: You don't have permission to save the file "GeneratedAssetSymbols.swift" in the folder "DerivedSources".
+    Failure Reason: You don't have permission. / Operation not permitted
+```
+
+**根因**: actool（asset catalog 编译）写 `DerivedSources` 目录时受文件系统 ACL/位置限制:
+
+1. **derivedData 位于外置磁盘**（本项目为 `/Volumes/MobileDisk/...`）: actool 写文件被拒。
+2. **`~/Library/Caches`** 带 macOS 默认 ACL `group:everyone deny delete`，同样触发（actool 写入流程含删除/rename）。
+
+**解决**: `package.sh` 的 `DERIVED_DATA` 默认改为本地 `/tmp/TunnelPilotBuild`（`DERIVED_DATA="${DERIVED_DATA:-/tmp/TunnelPilotBuild}"`，可用环境变量覆盖）。已实测稳定；构建缓存可随时重建，无需保留。
+
+**排查步骤**（若再遇到）:
+
+```bash
+# 1. 换 /tmp 或 Xcode 默认 DerivedData 路径构建，判断是否路径相关
+xcodebuild -project TunnelPilot.xcodeproj -scheme TunnelPilot -configuration Release -derivedDataPath /tmp/TestBuild build
+# 2. 检查 DerivedSources 权限/ACL
+ls -le build/.../DerivedSources
+```
+
 ## 十一、已知问题与后续待办
 
 ### 已知问题

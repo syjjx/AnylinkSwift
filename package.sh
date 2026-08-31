@@ -10,7 +10,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/TunnelPilot"
 OUT_DIR="${1:-/tmp}"
-DERIVED_DATA="$SCRIPT_DIR/build"
+# 注意: derivedData 必须在本地磁盘且无系统 ACL。
+# - 外置磁盘(/Volumes/...)上 actool 写 DerivedSources 会报 permission denied
+# - ~/Library/Caches 带 macOS 默认 ACL "deny delete"，同样触发
+# 已实测 /tmp 稳定可用（构建缓存，可随时重建）。
+DERIVED_DATA="${DERIVED_DATA:-/tmp/TunnelPilotBuild}"
 
 IDENTITY=$(security find-identity -v -p codesigning \
     | grep -E "Apple Development|Developer ID Application" \
