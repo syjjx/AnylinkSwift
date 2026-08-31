@@ -35,12 +35,7 @@ struct SettingsView: View {
                     SettingRow(
                         title: "不使用 DTLS 通道",
                         description: "仅使用 TLS 传输",
-                        isOn: binding(for: \AppSettings.disableDTLS)
-                    )
-                    SettingRow(
-                        title: "界面使用本地语言",
-                        description: "跟随系统语言显示界面",
-                        isOn: binding(for: \AppSettings.useLocalLanguage),
+                        isOn: binding(for: \AppSettings.disableDTLS),
                         isLast: true
                     )
                 }
