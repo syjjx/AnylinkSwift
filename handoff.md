@@ -184,12 +184,15 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 
 ## 九、sslcon 补丁与部署
 
-- **当前 HEAD `03ffe94`**，编译版本 `2.1.0`（`base.Version`，可 `-ldflags -X` 注入），二进制已在仓库根目录（`sslcon`/`vpnagent`）。
+- **当前 HEAD `03ffe94`（本地另有未提交改动，见下）**，编译版本 `2.1.1`（`base.Version`，可 `-ldflags -X` 注入），二进制已在仓库根目录（`sslcon`/`vpnagent`）。
 - **第二期功能**（fork main 新增，已编译验证，单测全过）:
   - 数据压缩: 协商 `X-CSTP-Accept-Encoding: oc-lz4,lzs`，LZS 为 openconnect 逐位移植（黄金向量验证），LZ4 标准 block；服务端 `compression` 决定是否启用。
   - 会话超时/租期: `idle_timeout`/`auth_expiration`，到期前 60s 告警（`ExpiryTimer`）。
   - 自动重连增强: 异常断线指数退避（1s→60s 封顶），用户主动断开不触发（`auto_reconnect` 默认 true）。
   - 版本号: `version` 子命令 + RPC VERSION（id=8）。
+- **本地未提交改动（2026-08-31，版本 2.1.0 → 2.1.1）**:
+  - `rpc/rpc.go`: DISCONNECT 分支在 `autoReconnecting` 进行中时置 `ActiveClose` 取消自动重连（原实现 `CSess == nil` 时仅报错，GUI 无法在重连中停止退避循环）。
+  - `base/version.go`: 默认版本号升为 `2.1.1`（**规则: 改 sslcon 代码必须递增版本号**，否则运行/打包版本比对无法区分新旧）。
 - 此前补丁: AF_ROUTE 路由优化（`a510a9b`）、InitLog 修复（`382a90f`）、Cisco ASA 支持（认证 XML 兼容/CONNECT 头对齐/路由 EEXIST 跳过/动态分流可观测性，已在 ASA 5545 v9.14 与 ocserv 实测）。
 - **构建要求**: go.mod `go 1.26.2`；根目录分别执行 `go build -o sslcon sslcon.go` 和 `go build -o vpnagent vpnagent.go`；推荐带版本:
   ```bash
@@ -242,7 +245,7 @@ cd /Volumes/MobileDisk/DEV/GO/anylink-client/AnyLinkSwift && ./package.sh /tmp
 
 ### 后续待办
 
-1. **自动重连 GUI 配合**: sslcon core 已支持 `auto_reconnect`（异常断线自动重连），GUI 目前 ABORT 事件仅转失败态；可考虑断开重连期间显示"重连中"状态。
+1. ~~**自动重连 GUI 配合**~~（已完成 2026-08-31）: `.reconnecting` 状态 + 设置项"异常断开自动重连"（CONFIG 补发 `auto_reconnect`，此前缺失导致 daemon 侧自动重连实际未开启）+ GUI 探测循环（每 2s 重发 CONNECT 感知重连成功）；依赖 sslcon 的 DISCONNECT 取消重连改动（版本 2.1.1），**未重装新 daemon 前取消重连不生效**。
 2. **公证与正式分发**: 申请 Developer ID 证书 + `notarytool` 公证（`package.sh` 预留步骤）。
 3. 可选: sslcon 本地补丁已并入 `fork`(syjjx/sslcon) main；如需可再提交 PR 到上游 bjdgyc/sslcon。
 4. 可选（上架 App Store 才需要）: NEPacketTunnelProvider 路线重写，免 root。

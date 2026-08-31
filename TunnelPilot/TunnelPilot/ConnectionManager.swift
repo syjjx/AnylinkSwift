@@ -28,6 +28,10 @@ final class ConnectionManager: ObservableObject {
     private let profileURL: URL
     private var lastProfileName: String
     private var operation: Task<Void, Never>?
+    /// 自动重连探测循环：vpnagent 异常断线重连成功后不会推送事件，
+    /// 由该任务周期重发 CONNECT 感知重连完成（重连中 sslcon 返回
+    /// "auto reconnecting, please wait"）。
+    private var reconnectTask: Task<Void, Never>?
     private var eventTask: Task<Void, Never>?
     private var logTailTask: Task<Void, Never>?
     private var logFileIdentity: (device: Int, inode: Int)?
@@ -220,15 +224,20 @@ final class ConnectionManager: ObservableObject {
     }
 
     var actionTitle: String {
-        connectionState == .connected ? "断开连接" : "连接"
+        (connectionState == .connected || connectionState == .reconnecting)
+            ? "断开连接"
+            : "连接"
     }
 
     var actionSymbol: String {
-        connectionState == .connected ? "xmark" : "arrow.right"
+        (connectionState == .connected || connectionState == .reconnecting)
+            ? "xmark"
+            : "arrow.right"
     }
 
+    /// 重连中允许点"断开"以取消自动重连，其余过渡状态禁用按钮。
     var canToggleConnection: Bool {
-        !connectionState.isTransitioning
+        connectionState == .reconnecting || !connectionState.isTransitioning
     }
 
     func setSetting(_ keyPath: WritableKeyPath<AppSettings, Bool>, to value: Bool) {
@@ -247,7 +256,7 @@ final class ConnectionManager: ObservableObject {
     }
 
     func toggleConnection() {
-        if connectionState == .connected {
+        if connectionState == .connected || connectionState == .reconnecting {
             disconnect()
         } else {
             connect()
@@ -300,8 +309,10 @@ final class ConnectionManager: ObservableObject {
     }
 
     func disconnect() {
-        guard connectionState == .connected else { return }
+        guard connectionState == .connected || connectionState == .reconnecting else { return }
 
+        reconnectTask?.cancel()
+        reconnectTask = nil
         operation?.cancel()
         connectionState = .disconnecting
         appendLog("connection: [Info] disconnect requested")
@@ -318,12 +329,48 @@ final class ConnectionManager: ObservableObject {
 
     /// 应用退出前同步断开 VPN（由 AppDelegate 的 terminateLater 流程调用）。
     func disconnectForTermination() async {
-        guard connectionState == .connected || connectionState == .connecting else { return }
+        guard connectionState == .connected || connectionState == .connecting || connectionState == .reconnecting else { return }
         appendLog("connection: [Info] 应用退出，断开连接")
+        reconnectTask?.cancel()
+        reconnectTask = nil
         operation?.cancel()
         await service.disconnect()
         transitionToDisconnected()
         appendLog("connection: [Info] connection closed")
+    }
+
+    // MARK: - 自动重连
+
+    /// 自动重连探测循环：每 2 秒重发一次 CONNECT。
+    ///
+    /// sslcon 的自动重连由 daemon 侧执行（指数退避 1s→60s），重连期间
+    /// CONNECT 会返回 "auto reconnecting, please wait"，重连成功（或已连接）
+    /// 时返回成功。GUI 借此感知重连完成：成功即转 .connected，且
+    /// AgentConnectionService 会随之恢复 stat/status 轮询，流量显示无缝恢复。
+    private func startReconnectProbe() {
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            guard let self else { return }
+            let gateway = self.selectedGateway
+            let oneTimePassword = self.otp
+            // 先等一轮再探测，避免与 sslcon 的 ABORT 推送竞争
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            while !Task.isCancelled && connectionState == .reconnecting {
+                do {
+                    try await service.connect(to: gateway, otp: oneTimePassword)
+                    guard !Task.isCancelled else { return }
+                    if connectionState == .reconnecting {
+                        connectionState = .connected
+                        connectedSince = Date()
+                        appendLog("connection: [Info] 自动重连成功")
+                    }
+                    return
+                } catch {
+                    // 仍在自动重连中，继续探测
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     // MARK: - 通信层事件
@@ -354,16 +401,25 @@ final class ConnectionManager: ObservableObject {
             transitionToDisconnected()
             appendLog("connection: [Info] \(message)")
         case .aborted(let message):
-            guard connectionState == .connected || connectionState == .connecting else { return }
-            connectionState = .failed
-            lastError = message
+            guard connectionState == .connected || connectionState == .connecting || connectionState == .reconnecting else { return }
             snapshot = .inactive
             traffic = .inactive
             routes = .inactive
             trafficRates = .inactive
             lastTrafficSample = nil
             connectedSince = nil
-            appendLog("connection: [Error] \(message)")
+            if settings.autoReconnect {
+                // 进入自动重连状态：sslcon 侧指数退避重连，这里周期探测感知重连完成
+                if connectionState != .reconnecting {
+                    connectionState = .reconnecting
+                    appendLog("connection: [Info] 网络中断，正在自动重连…")
+                }
+                startReconnectProbe()
+            } else {
+                connectionState = .failed
+                lastError = message
+                appendLog("connection: [Error] \(message)")
+            }
         }
     }
 
@@ -793,6 +849,7 @@ private struct PersistedConfiguration: Codable {
     var local = true
     var noDTLS = false
     var compression = true
+    var autoReconnect = true
 
     private enum CodingKeys: String, CodingKey {
         case lastProfile
@@ -803,6 +860,7 @@ private struct PersistedConfiguration: Codable {
         case local
         case noDTLS = "no_dtls"
         case compression
+        case autoReconnect
     }
 
     init() {}
@@ -816,6 +874,7 @@ private struct PersistedConfiguration: Codable {
         local = settings.useLocalLanguage
         noDTLS = settings.disableDTLS
         compression = settings.compressionEnabled
+        autoReconnect = settings.autoReconnect
     }
 
     init(from decoder: Decoder) throws {
@@ -831,6 +890,7 @@ private struct PersistedConfiguration: Codable {
         local = (try? container.decode(Bool.self, forKey: .local)) ?? true
         noDTLS = (try? container.decode(Bool.self, forKey: .noDTLS)) ?? false
         compression = (try? container.decode(Bool.self, forKey: .compression)) ?? true
+        autoReconnect = (try? container.decode(Bool.self, forKey: .autoReconnect)) ?? true
     }
 
     var settings: AppSettings {
@@ -841,6 +901,7 @@ private struct PersistedConfiguration: Codable {
         settings.debugLogging = debug
         settings.compressionEnabled = compression
         settings.disableDTLS = noDTLS
+        settings.autoReconnect = autoReconnect
         settings.useLocalLanguage = local
         return settings
     }

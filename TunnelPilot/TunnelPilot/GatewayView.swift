@@ -102,7 +102,7 @@ private struct GatewayHeroCard: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-        case .connecting, .disconnecting:
+        case .connecting, .disconnecting, .reconnecting:
             return LinearGradient(
                 colors: [Color(hex: 0x4F9DFF), Color(hex: 0x2A72D8)],
                 startPoint: .topLeading,

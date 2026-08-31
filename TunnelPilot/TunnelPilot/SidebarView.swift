@@ -76,7 +76,7 @@ struct SidebarView: View {
     private var stateColor: Color {
         switch connectionManager.connectionState {
         case .connected: return AppTheme.success
-        case .connecting, .disconnecting: return AppTheme.warning
+        case .connecting, .disconnecting, .reconnecting: return AppTheme.warning
         case .failed: return AppTheme.danger
         case .disconnected: return .secondary
         }

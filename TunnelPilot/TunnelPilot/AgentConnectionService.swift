@@ -450,6 +450,7 @@ actor AgentConnectionService: ConnectionService {
             "cisco_compat": true,
             "no_dtls": settings.disableDTLS,
             "compression": settings.compressionEnabled,
+            "auto_reconnect": settings.autoReconnect,
             "agent_name": "AnyLink Secure Client",
             "agent_version": version,
         ]

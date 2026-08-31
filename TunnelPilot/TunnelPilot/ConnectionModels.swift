@@ -42,6 +42,7 @@ enum ConnectionState: Equatable {
     case connecting
     case connected
     case disconnecting
+    case reconnecting
     case failed
 
     var title: String {
@@ -50,6 +51,7 @@ enum ConnectionState: Equatable {
         case .connecting: return "正在连接..."
         case .connected: return "安全连接已建立"
         case .disconnecting: return "正在断开..."
+        case .reconnecting: return "正在重连..."
         case .failed: return "连接失败"
         }
     }
@@ -60,6 +62,7 @@ enum ConnectionState: Equatable {
         case .connecting: return "正在连接 VPN 服务器"
         case .connected: return "隧道已建立"
         case .disconnecting: return "正在关闭隧道"
+        case .reconnecting: return "网络中断，正在自动重连"
         case .failed: return "请重新尝试连接"
         }
     }
@@ -70,6 +73,7 @@ enum ConnectionState: Equatable {
         case .connecting: return "正在连接"
         case .connected: return "已连接"
         case .disconnecting: return "正在断开"
+        case .reconnecting: return "重连中"
         case .failed: return "连接失败"
         }
     }
@@ -77,14 +81,14 @@ enum ConnectionState: Equatable {
     var menuBarSymbol: String {
         switch self {
         case .disconnected: return "lock.open"
-        case .connecting, .disconnecting: return "arrow.triangle.2.circlepath"
+        case .connecting, .disconnecting, .reconnecting: return "arrow.triangle.2.circlepath"
         case .connected: return "lock"
         case .failed: return "exclamationmark.shield.fill"
         }
     }
 
     var isConnected: Bool { self == .connected }
-    var isTransitioning: Bool { self == .connecting || self == .disconnecting }
+    var isTransitioning: Bool { self == .connecting || self == .disconnecting || self == .reconnecting }
 }
 
 struct GatewayProfile: Identifiable, Hashable, Sendable {
@@ -269,5 +273,7 @@ struct AppSettings: Sendable {
     var debugLogging = false
     var compressionEnabled = true
     var disableDTLS = false
+    /// 异常断线时由 vpnagent 自动重连（指数退避，用户主动断开不触发）
+    var autoReconnect = true
     var useLocalLanguage = true
 }

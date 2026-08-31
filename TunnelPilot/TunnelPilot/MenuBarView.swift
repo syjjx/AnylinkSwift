@@ -24,7 +24,7 @@ struct MenuBarStatusIcon: View {
     private var stateColor: Color {
         switch state {
         case .connected: return .secondary
-        case .connecting, .disconnecting: return AppTheme.warning
+        case .connecting, .disconnecting, .reconnecting: return AppTheme.warning
         case .failed: return AppTheme.danger
         case .disconnected: return .secondary
         }
@@ -36,7 +36,7 @@ struct MenuBarStatusIcon: View {
             return .white
         case .disconnected:
             return .secondaryLabelColor
-        case .connecting, .disconnecting:
+        case .connecting, .disconnecting, .reconnecting:
             return NSColor(calibratedRed: 0xFF / 255.0, green: 0x9F / 255.0, blue: 0x0A / 255.0, alpha: 1)
         case .failed:
             return NSColor(calibratedRed: 0xFF / 255.0, green: 0x45 / 255.0, blue: 0x3A / 255.0, alpha: 1)
@@ -87,7 +87,7 @@ struct MenuBarContent: View {
 
     private var quickActionTitle: String {
         switch connectionManager.connectionState {
-        case .connected:
+        case .connected, .reconnecting:
             return "快速断开"
         case .connecting:
             return "正在连接..."
@@ -100,7 +100,7 @@ struct MenuBarContent: View {
 
     private var quickActionSymbol: String {
         switch connectionManager.connectionState {
-        case .connected:
+        case .connected, .reconnecting:
             return "xmark.circle"
         case .connecting, .disconnecting:
             return "arrow.triangle.2.circlepath"

@@ -33,6 +33,11 @@ struct SettingsView: View {
                         isOn: binding(for: \AppSettings.compressionEnabled)
                     )
                     SettingRow(
+                        title: "异常断开自动重连",
+                        description: "网络中断后自动重连，直到恢复或手动断开",
+                        isOn: binding(for: \AppSettings.autoReconnect)
+                    )
+                    SettingRow(
                         title: "不使用 DTLS 通道",
                         description: "仅使用 TLS 传输",
                         isOn: binding(for: \AppSettings.disableDTLS),
