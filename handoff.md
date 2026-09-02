@@ -1,6 +1,6 @@
 # Handoff - TunnelPilot macOS GUI 项目
 
-> 更新日期: 2026-08-31
+> 更新日期: 2026-09-02
 > 用途: 新会话从本文档恢复上下文，继续本项目
 
 ---
@@ -40,6 +40,8 @@ GitHub:
   - `2787f62` feat: 自动重连 GUI 配合（重连中状态 + 设置开关 + 探测感知）
   - `67d55a2` docs: handoff 记录组件版本误报修复（70ca4dd）
 - sslcon 仓库最近提交（fork main，均已推送）:
+  - `92a33a7` fix: DTLS 中断后自动重建并修复自动重连竞态，升级版本 2.1.3
+  - `9da274d` fix: 压缩开关失效（关闭后协商仍开启），清除残留 Accept-Encoding 头并升级 2.1.2
   - `761bc2a` ci: 构建改为手动触发（workflow_dispatch）
   - `d4d8ace` ci: 增加 workflow_dispatch 手动触发
   - `aec17b6` ci: 增加 go vet/test 步骤完善自动验证
@@ -187,7 +189,7 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 
 ## 九、sslcon 补丁与部署
 
-- **fork main HEAD `761bc2a`**，编译版本 `2.1.1`（`base.Version`，可 `-ldflags -X` 注入），二进制已在仓库根目录（`sslcon`/`vpnagent`）。
+- **fork main HEAD `92a33a7`**，编译版本 `2.1.3`（`base.Version`，可 `-ldflags -X` 注入），二进制已在仓库根目录（`sslcon`/`vpnagent`）。
 - **第二期功能**（fork main 新增，已编译验证，单测全过）:
   - 数据压缩: 协商 `X-CSTP-Accept-Encoding: oc-lz4,lzs`，LZS 为 openconnect 逐位移植（黄金向量验证），LZ4 标准 block；服务端 `compression` 决定是否启用。
   - 会话超时/租期: `idle_timeout`/`auth_expiration`，到期前 60s 告警（`ExpiryTimer`）。
@@ -196,10 +198,17 @@ GUI <- WebSocket JSON-RPC ws://127.0.0.1:6210/rpc -> vpnagent -> AnyLink/ocserv
 - **2.1.1 版本改动（`fd5f6a2` 已推送 fork main）**:
   - `rpc/rpc.go`: DISCONNECT 分支在 `autoReconnecting` 进行中时置 `ActiveClose` 取消自动重连（原实现 `CSess == nil` 时仅报错，GUI 无法在重连中停止退避循环）。
   - `base/version.go`: 默认版本号升为 `2.1.1`（**规则: 改 sslcon 代码必须递增版本号**，否则运行/打包版本比对无法区分新旧）。
+- **2.1.3 版本改动（`92a33a7` 已推送 fork main，2026-09-02）**——DTLS 中断后自动重建 + 自动重连竞态修复:
+  - `vpn/dtls.go`: DTLS 通道中断（典型场景: macOS 空闲时网络状态变化，如 DHCP 续租换 IP/WiFi 切换/休眠唤醒，UDP sendto 报 `EADDRNOTAVAIL/can't assign requested address`）或协商失败后，指数退避（5s→60s，会话关闭即退出）自动重建，成功后恢复 `DtlsConnected`，GUI 状态页自动回到 DTLS；此前 `monitor()` 注释明确"不考虑 DTLS 中途关闭情形"，通道一旦中断只能 TLS 单通道运行且永远无法恢复。
+  - `session/session.go`: `ConnSession.Close()`/`DtlsSession.Close()` 改为会话作用域（仅当 `Sess.CSess == cSess`/`Sess.CSess.DSess == dSess` 才清理全局状态）。修复自动重连竞态: 旧会话清理延迟执行（TLS 读卡在半个 TCP 连接上，网络恢复后才报错，日志表现为重连成功后 2s 出现 `read dead timer exit`）时，会误将 `Sess.CSess` 置空、误关新会话的 `Sess.CloseChan`（触发误 ABORT/再次重连/孤儿会话，孤儿 DTLS 通道会存活数小时后才死）并误清新会话的 `DtlsConnected`/`DTLSCipherSuite`。
+  - `utils/vpnc/vpnc_darwin.go`: VPN 服务器主机路由改为**先删后加**（替换残留旧网关路由，杜绝 `EADDRNOTAVAIL` 死路由）；`pipelineLocked` 容忍 RTM_DELETE 的 `ESRCH/no such process`（macOS 对删除不存在路由在 write 阶段直接返回 ESRCH）与 `ENOENT`，**否则首次连接必失败**（踩坑记录: 首版只容忍了 ACK 阶段的 ENOENT，导致所有连接报 `write route 0 (VPN server ... (replace)): no such process`）。
+  - `vpn/tunnel.go`: `SetRoutes` 失败分支补 `return err`（既有 bug，缺失时会在已关闭会话上继续启动通道并误报 `tls channel negotiation succeeded` 后立即全部退出）。
+  - `session/session_test.go`: 新增 `TestConnSessionCloseDoesNotTouchNewSession`/`TestDtlsSessionCloseDoesNotTouchNewSession` 回归测试。
+  - 实测（2026-09-02）: 连接正常、TLS/DTLS 均按 85s 周期响应 DPD-RESP（`dtls.go:203` 为新代码行号，确认 daemon 已更新）。
 - 此前补丁: AF_ROUTE 路由优化（`a510a9b`）、InitLog 修复（`382a90f`）、Cisco ASA 支持（认证 XML 兼容/CONNECT 头对齐/路由 EEXIST 跳过/动态分流可观测性，已在 ASA 5545 v9.14 与 ocserv 实测）。
 - **构建要求**: go.mod `go 1.26.2`；根目录分别执行 `go build -o sslcon sslcon.go` 和 `go build -o vpnagent vpnagent.go`；推荐带版本:
   ```bash
-  go build -ldflags "-X sslcon/base.Version=2.1.1 -X sslcon/base.Commit=$(git rev-parse --short HEAD)" -o sslcon sslcon.go
+  go build -ldflags "-X sslcon/base.Version=2.1.3 -X sslcon/base.Commit=$(git rev-parse --short HEAD)" -o sslcon sslcon.go
   ```
   网络受限时 `GOPROXY=https://goproxy.cn,direct`（lz4 依赖需下载）。
 - **ASA 使用提示**: 多用户组需 `-g` 指定组名（组不对报 Login failed）；`-l Debug` 完整认证日志（密码已打码）。
@@ -293,9 +302,9 @@ clone 到 `~/DEV/GO/sslcon` 后 Embed 脚本零配置（默认路径已通用化
 
 ### 沙箱（AI 会话）环境限制（仅代理开发时相关）
 
-- 写 workspace 之外（如 `sslcon` 仓库、`~/.ssh`、`~/.gitconfig`）需提升权限并经用户批准；Go 构建需设 `GOCACHE` 到 workspace 内。
-- 钥匙串不可见（`security find-identity` 0 证书）→ 无法 codesign/公证；`hdiutil` 不可用 → 沙箱内打不了 DMG。**正式签名打包必须在用户本机执行**。
-- git 已配 SSH 授权（见第二节），push 成功但本地 remote-tracking ref 更新会报 `cannot lock ref` 警告（sslcon 的 .git 在 workspace 外），以 `git ls-remote` 核对远程为准。
+- 写 workspace 之外（如 `sslcon` 仓库、`~/.ssh`、`~/.gitconfig`）需提升权限并经用户批准；Go 构建需设 `GOCACHE` 到 workspace 内（如 `GOCACHE=/Volumes/MobileDisk/DEV/GO/anylink-client/.gocache`）。
+- 钥匙串/打包: 2026-09-02 实测——提升权限（danger-full-access）后 `security find-identity` 可见证书、`./package.sh` 可完整跑通（xcodebuild Release + codesign + hdiutil DMG，产物 `/tmp/隧道助手.dmg`）。若未提升权限则钥匙串 0 证书、无法签名/打 DMG。
+- git 已配 SSH 授权（见第二节），push 成功但本地 remote-tracking ref 更新可能报 `cannot lock ref` 警告（sslcon 的 .git 在 workspace 外），以 `git ls-remote` 核对远程为准。
 - 转 private 后匿名 GitHub API 失效，远程验证改用 SSH。
 
 ## 十一、已知问题与后续待办
@@ -307,6 +316,7 @@ clone 到 `~/DEV/GO/sslcon` 后 Embed 脚本零配置（默认路径已通用化
 
 ### 已修复
 
+- **自动重连/空闲后 DTLS 协商丢失且无法恢复**（2026-09-02，sslcon `92a33a7` 升级 2.1.3）: 症状——重连后 GUI 状态页 DTLS 显示"没有"（通道类型 TLS）；日志 `dtls.go` `sendto: can't assign requested address`（macOS 空闲时网络状态变化，如 DHCP 续租换 IP/WiFi 切换/休眠唤醒，UDP socket 失效）后 `dtls channel exit`，且再无重建。根因——① sslcon 无 DTLS 恢复机制（`monitor()` 注释"不考虑 DTLS 中途关闭情形"，通道只随会话启动一次）；② `ConnSession.Close()`/`DtlsSession.Close()` 改全局 `Sess.CSess`/`Sess.CloseChan`，自动重连时旧会话延迟清理会误清新会话（误 ABORT/孤儿会话，孤儿 DTLS 通道存活数小时后才死）；③ VPN 服务器主机路由残留旧网关（EEXIST 跳过不替换）→ EADDRNOTAVAIL。修复详见第九节 2.1.3 版本改动。实测: 连接正常，TLS/DTLS 均按 85s 周期响应 DPD-RESP。
 - **CI 无签名 DMG 在其它 Mac 报"已损坏"且无"仍要打开"**（2026-08-31）: Xcode 26 的 ld 即使 `CODE_SIGNING_ALLOWED=NO` 也会给主二进制嵌入 linker-signed ad-hoc 签名，但 bundle 无正式签名（无 `_CodeSignature`），签名与内容不一致 → Gatekeeper 判"已损坏"（只能移到废纸篓，无"仍要打开"）。修复: workflow 构建后对 bundle 整体做 ad-hoc 签名（`codesign --force --sign -`，先签 vpnagent/sslcon 再签 app，`codesign --verify --deep --strict` 校验）。产物变为"未信任但签名完整"→ 恢复"仍要打开"。注意: 无签名/仅 linker-signed 的 app 在其它 Mac 都会这样，本地 `package.sh` 因用真实证书签名不受影响。
 - **开发构建误报"VPN 服务指向旧版本应用"**（`70ca4dd`）: `.outdated` 原为纯路径比对（plist 指向路径 ≠ 当前 bundle 路径），Xcode 开发构建（bundle 在 DerivedData/自定义路径）与 daemon 指向的 `/Applications` 打包版路径不同，即使运行版本 == 打包版本也误报。修复: 横幅/设置页改按版本判断——`.outdated` 但运行版本 ≥ 打包版本（`agentNeedsAttention == false`）视为可用不提示；运行版本未知（旧进程无 VERSION）仍保守提示（`treatUnknown` 已覆盖 `.outdated`）。涉及 `ConnectionManager.swift`（新增 `agentNeedsAttention`）、`ContentView.swift`（横幅条件）、`SettingsView.swift`（状态文字/颜色）。
 
@@ -334,6 +344,6 @@ clone 到 `~/DEV/GO/sslcon` 后 Embed 脚本零配置（默认路径已通用化
 - 修改完成后运行 `xcodebuild` 验证。
 - 只有用户明确要求时才 commit/push；提交前排除 `.DS_Store`、`xcuserdata`、`build/`、构建产物和敏感配置。
 - **git 授权**: 代理环境已配 SSH（2026-08-31），commit/push 可直接执行（推送目标: AnylinkSwift → `origin main`；sslcon → `fork main`，勿推上游 `origin`）。
-- **改 sslcon 代码必须递增版本号**（`base/version.go`，当前 2.1.1），否则运行/打包版本比对无法区分新旧。
+- **改 sslcon 代码必须递增版本号**（`base/version.go`，当前 2.1.3），否则运行/打包版本比对无法区分新旧。
 - **CI 均为手动触发**（workflow_dispatch）；日常流程: 改代码 → push 两仓库 → AnylinkSwift Actions 页 Run workflow → 下载 DMG。
 - 沙箱环境签名/打 DMG 受限，正式打包用本机 `./package.sh`（见"沙箱环境限制"）。
